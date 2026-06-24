@@ -1,0 +1,37 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: telegram-news-web
+  labels:
+    app: telegram-news
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`__PUBLIC_HOST__`)
+      kind: Rule
+      middlewares:
+        - name: telegram-news-https-redirect
+      services:
+        - name: telegram-news-bot
+          port: 80
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: telegram-news-websecure
+  labels:
+    app: telegram-news
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`__PUBLIC_HOST__`)
+      kind: Rule
+      middlewares:
+        - name: telegram-news-security-headers
+      services:
+        - name: telegram-news-bot
+          port: 80
+  tls:
+    secretName: telegram-news-tls

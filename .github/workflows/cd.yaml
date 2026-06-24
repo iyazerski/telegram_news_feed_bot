@@ -1,0 +1,244 @@
+name: CD
+run-name: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.display_title || 'Manual CD' }}
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      confirm_deployment:
+        description: 'Type "deploy" to confirm deployment'
+        required: true
+        default: ""
+
+concurrency:
+  group: telegram-news-feed-bot-deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' && inputs.confirm_deployment == 'deploy' || github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      bot_image: ${{ steps.image-refs.outputs.bot_image }}
+      dispatcher_image: ${{ steps.image-refs.outputs.dispatcher_image }}
+      migration_image: ${{ steps.image-refs.outputs.migration_image }}
+      poller_image: ${{ steps.image-refs.outputs.poller_image }}
+    env:
+      IMAGE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Resolve image references
+        id: image-refs
+        run: |
+          echo "bot_image=ghcr.io/${{ github.repository }}:bot-${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "dispatcher_image=ghcr.io/${{ github.repository }}:dispatcher-${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "migration_image=ghcr.io/${{ github.repository }}:migration-${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "poller_image=ghcr.io/${{ github.repository }}:poller-${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push bot image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/bot/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.image-refs.outputs.bot_image }}
+            ghcr.io/${{ github.repository }}:bot-latest
+
+      - name: Build and push poller image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/poller/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.image-refs.outputs.poller_image }}
+            ghcr.io/${{ github.repository }}:poller-latest
+
+      - name: Build and push dispatcher image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/dispatcher/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.image-refs.outputs.dispatcher_image }}
+            ghcr.io/${{ github.repository }}:dispatcher-latest
+
+      - name: Build and push migration image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/migration/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.image-refs.outputs.migration_image }}
+            ghcr.io/${{ github.repository }}:migration-latest
+
+  deploy:
+    needs: build
+    if: needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    env:
+      BOT_IMAGE: ${{ needs.build.outputs.bot_image }}
+      DISPATCHER_IMAGE: ${{ needs.build.outputs.dispatcher_image }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+      KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
+      LETSENCRYPT_EMAIL: ${{ secrets.LETSENCRYPT_EMAIL }}
+      MIGRATION_IMAGE: ${{ needs.build.outputs.migration_image }}
+      NAMESPACE: ${{ secrets.KUBE_NAMESPACE }}
+      PACKAGES_PAT: ${{ secrets.PACKAGES_PAT }}
+      POLLER_IMAGE: ${{ needs.build.outputs.poller_image }}
+      POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+      PUBLIC_HOST: ${{ vars.PUBLIC_HOST || secrets.PUBLIC_HOST || 'newsfeedbot.iyazerski.dev' }}
+      TELEGRAM_NEWS_ADMIN_USER_ID: ${{ secrets.TELEGRAM_NEWS_ADMIN_USER_ID }}
+      TELEGRAM_NEWS_BOT_TOKEN: ${{ secrets.TELEGRAM_NEWS_BOT_TOKEN }}
+      TELEGRAM_NEWS_BOT_WEBHOOK_SECRET_TOKEN: ${{ secrets.TELEGRAM_NEWS_BOT_WEBHOOK_SECRET_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v5
+        with:
+          version: v1.29.0
+
+      - name: Configure deployment defaults
+        run: |
+          echo "NAMESPACE=${NAMESPACE:-default}" >> "$GITHUB_ENV"
+          echo "POSTGRES_DB=${POSTGRES_DB:-telegram_news_feed_bot}" >> "$GITHUB_ENV"
+          echo "POSTGRES_USER=${POSTGRES_USER:-telegram_news_feed_bot}" >> "$GITHUB_ENV"
+
+      - name: Validate required settings
+        run: |
+          for key in LETSENCRYPT_EMAIL PACKAGES_PAT POSTGRES_PASSWORD PUBLIC_HOST TELEGRAM_NEWS_BOT_TOKEN TELEGRAM_NEWS_BOT_WEBHOOK_SECRET_TOKEN; do
+            if [ -z "${!key}" ]; then
+              echo "${key} is required." >&2
+              exit 1
+            fi
+          done
+          if [ -z "${KUBE_CONFIG}" ] && [ -z "${KUBE_CONFIG_B64}" ]; then
+            echo "KUBE_CONFIG or KUBE_CONFIG_B64 is required." >&2
+            exit 1
+          fi
+
+      - name: Build database URL
+        run: |
+          TELEGRAM_NEWS_DATABASE_URL="$(python3 - <<'PY'
+          from os import environ
+          from urllib.parse import quote
+
+          user = quote(environ["POSTGRES_USER"], safe="")
+          password = quote(environ["POSTGRES_PASSWORD"], safe="")
+          database = quote(environ["POSTGRES_DB"], safe="")
+          print(f"postgresql+psycopg://{user}:{password}@telegram-news-postgres:5432/{database}")
+          PY
+          )"
+          echo "::add-mask::${TELEGRAM_NEWS_DATABASE_URL}"
+          echo "TELEGRAM_NEWS_DATABASE_URL=${TELEGRAM_NEWS_DATABASE_URL}" >> "$GITHUB_ENV"
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          if [ -n "${KUBE_CONFIG}" ]; then
+            echo "${KUBE_CONFIG}" > ~/.kube/config
+          else
+            echo "${KUBE_CONFIG_B64}" | base64 -d > ~/.kube/config
+          fi
+          chmod 600 ~/.kube/config
+
+      - name: Ensure namespace exists
+        run: |
+          kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1 || kubectl create namespace "${NAMESPACE}"
+
+      - name: Create GHCR image pull secret
+        run: |
+          if [ -z "${GHCR_USERNAME}" ]; then
+            GHCR_USERNAME="${{ github.repository_owner }}"
+          fi
+          kubectl -n "${NAMESPACE}" create secret docker-registry ghcr-pull-secret \
+            --docker-server=ghcr.io \
+            --docker-username="${GHCR_USERNAME}" \
+            --docker-password="${PACKAGES_PAT}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply database secrets
+        run: |
+          kubectl -n "${NAMESPACE}" create secret generic telegram-news-postgres-secrets \
+            --from-literal=POSTGRES_DB="${POSTGRES_DB}" \
+            --from-literal=POSTGRES_USER="${POSTGRES_USER}" \
+            --from-literal=POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n "${NAMESPACE}" create secret generic telegram-news-database-secrets \
+            --from-literal=TELEGRAM_NEWS_DATABASE_URL="${TELEGRAM_NEWS_DATABASE_URL}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply Telegram secrets
+        run: |
+          kubectl -n "${NAMESPACE}" create secret generic telegram-news-bot-secrets \
+            --from-literal=TELEGRAM_NEWS_BOT_TOKEN="${TELEGRAM_NEWS_BOT_TOKEN}" \
+            --from-literal=TELEGRAM_NEWS_ADMIN_USER_ID="${TELEGRAM_NEWS_ADMIN_USER_ID}" \
+            --from-literal=TELEGRAM_NEWS_BOT_WEBHOOK_SECRET_TOKEN="${TELEGRAM_NEWS_BOT_WEBHOOK_SECRET_TOKEN}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply cert-manager ClusterIssuer
+        run: |
+          sed -e "s|__LETSENCRYPT_EMAIL__|${LETSENCRYPT_EMAIL}|g" k8s/clusterissuer-letsencrypt-prod.yaml | kubectl apply -f -
+
+      - name: Deploy stateful dependencies
+        run: |
+          sed -e "s|__PUBLIC_HOST__|${PUBLIC_HOST}|g" k8s/configmap.yaml | kubectl -n "${NAMESPACE}" apply -f -
+          kubectl -n "${NAMESPACE}" apply -f k8s/postgres.yaml
+          kubectl -n "${NAMESPACE}" apply -f k8s/nats.yaml
+          kubectl -n "${NAMESPACE}" rollout status deployment/telegram-news-postgres --timeout=300s
+          kubectl -n "${NAMESPACE}" rollout status deployment/telegram-news-nats --timeout=300s
+
+      - name: Run database migrations
+        run: |
+          kubectl -n "${NAMESPACE}" delete job telegram-news-migrate --ignore-not-found
+          if kubectl -n "${NAMESPACE}" get job telegram-news-migrate >/dev/null 2>&1; then
+            kubectl -n "${NAMESPACE}" wait --for=delete job/telegram-news-migrate --timeout=120s
+          fi
+          sed -e "s|__MIGRATION_IMAGE__|${MIGRATION_IMAGE}|g" k8s/migration-job.yaml | kubectl -n "${NAMESPACE}" apply -f -
+          kubectl -n "${NAMESPACE}" wait --for=condition=complete job/telegram-news-migrate --timeout=300s
+
+      - name: Deploy application services
+        run: |
+          sed \
+            -e "s|__BOT_IMAGE__|${BOT_IMAGE}|g" \
+            -e "s|__POLLER_IMAGE__|${POLLER_IMAGE}|g" \
+            -e "s|__DISPATCHER_IMAGE__|${DISPATCHER_IMAGE}|g" \
+            k8s/deployment.yaml | kubectl -n "${NAMESPACE}" apply -f -
+          kubectl -n "${NAMESPACE}" apply -f k8s/service.yaml
+          kubectl -n "${NAMESPACE}" apply -f k8s/traefik.yaml
+          sed -e "s|__PUBLIC_HOST__|${PUBLIC_HOST}|g" k8s/certificate.yaml | kubectl -n "${NAMESPACE}" apply -f -
+          sed -e "s|__PUBLIC_HOST__|${PUBLIC_HOST}|g" k8s/ingressroute.yaml | kubectl -n "${NAMESPACE}" apply -f -
+          kubectl -n "${NAMESPACE}" rollout status deployment/telegram-news-bot --timeout=300s
+          kubectl -n "${NAMESPACE}" rollout status deployment/telegram-news-poller --timeout=300s
+          kubectl -n "${NAMESPACE}" rollout status deployment/telegram-news-dispatcher --timeout=300s

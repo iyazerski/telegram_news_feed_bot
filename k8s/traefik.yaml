@@ -1,0 +1,24 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: telegram-news-https-redirect
+  labels:
+    app: telegram-news
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: telegram-news-security-headers
+  labels:
+    app: telegram-news
+spec:
+  headers:
+    contentTypeNosniff: true
+    frameDeny: true
+    browserXssFilter: true
+    stsSeconds: 31536000
+    stsIncludeSubdomains: true

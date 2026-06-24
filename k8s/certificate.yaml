@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: telegram-news-tls
+  labels:
+    app: telegram-news
+spec:
+  secretName: telegram-news-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - __PUBLIC_HOST__

@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=80.9.0", "wheel>=0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "telegram-news-feed-bot"
+authors = [
+    {name = "Ihar Yazerski", email = "ihar.yazerski@gmail.com"},
+]
+description = "Self-hosted Telegram public channel feed aggregator"
+readme = "README.md"
+requires-python = ">=3.14"
+license = { text = "Proprietary" }
+version = "0.1.0"
+dependencies = [
+    "aiohttp>=3.14.1",
+    "alembic>=1.18.4",
+    "beautifulsoup4>=4.14.3",
+    "httpx>=0.28.1",
+    "loguru>=0.7.3",
+    "nats-py>=2.12.0",
+    "psycopg[binary]>=3.3.3",
+    "pydantic>=2.13.3",
+    "pydantic-settings>=2.13.1",
+    "sqlalchemy>=2.0.48",
+]
+
+[dependency-groups]
+dev = [
+    "ipython>=9.11.0",
+    "pre-commit>=4.5.1",
+    "pytest>=9.0.2",
+    "ruff>=0.15.5",
+    "ty>=0.0.21",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+markers = [
+    "unit: mark isolated unit tests.",
+    "functional: mark functional tests.",
+]
+
+[tool.ty.rules]
+invalid-method-override = "ignore"
+unresolved-import = "ignore"
+
+[tool.ruff]
+line-length = 120
+src = ["."]
+exclude = [
+    ".env",
+    ".venv",
+    "venv",
+    ".git",
+    "__pycache__",
+    ".github",
+    ".idea",
+    ".kube",
+]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["TRY","PGH","D","DOC","TD","C90","FLY","EM","G","PERF401","DTZ","RET501","COM","S101","S105","FBT","PLR2004","SIM108","PLR0913","BLE001","ANN401","FIX002","FA102","E501","B905","PLR0912","PLR0911","N999","PERF203","B019","S311","S608","PLR0915","T201", "PLW0603", "RUF001", "RUF002", "RUF003", "TC001", "TC002", "TC003", "PT009"]
+
+[tool.ruff.format]
+quote-style = "double"

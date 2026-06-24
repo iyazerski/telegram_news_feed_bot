@@ -1,0 +1,29 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: telegram-news-migrate
+  labels:
+    app: telegram-news
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: telegram-news
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: migrate
+          image: __MIGRATION_IMAGE__
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: telegram-news-config
+            - secretRef:
+                name: telegram-news-database-secrets
+            - secretRef:
+                name: telegram-news-bot-secrets
