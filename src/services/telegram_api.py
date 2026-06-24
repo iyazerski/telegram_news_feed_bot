@@ -45,6 +45,21 @@ class TelegramBotApi:
 
         await self._post("setWebhook", payload)
 
+    async def set_chat_menu_button(self, text: str, web_app_url: str) -> None:
+        """
+        Configure the default bot menu button to launch the Mini App.
+        """
+        await self._post(
+            "setChatMenuButton",
+            {
+                "menu_button": {
+                    "type": "web_app",
+                    "text": text,
+                    "web_app": {"url": web_app_url},
+                }
+            },
+        )
+
     async def delete_webhook(self) -> None:
         """
         Remove any registered webhook before local long polling starts.

@@ -4,21 +4,22 @@ Self-hosted Telegram public channel feed aggregator. It discovers public `t.me/s
 
 ## Services
 
-- `bot`: Telegram command UI for managing source channels and polling interval.
+- `bot`: Telegram command UI, webhook receiver, and Mini App API/frontend for managing source channels and polling interval.
 - `poller`: Periodically checks public Telegram web preview pages and publishes structured post metadata.
 - `dispatcher`: Consumes post metadata and reposts each source post as one Telegram bot delivery.
 - `postgres`: Persistent source subscriptions, bot-chat destination, and per-channel committed cursors.
 - `nats`: Lightweight message bus between poller and dispatcher.
 
+## Mini App
+
+The bot service serves a Telegram Mini App at `/app` and authenticated JSON API routes at `/api/*`. The Mini App validates Telegram `initData` on the backend and restricts access to `TELEGRAM_NEWS_ADMIN_USER_ID` when configured.
+
+Set `TELEGRAM_NEWS_MINI_APP_URL` to a public HTTPS URL when running a local test bot through a tunnel. In production, the menu button defaults to `https://<TELEGRAM_NEWS_PUBLIC_HOST>/app`. Set `TELEGRAM_NEWS_BOT_CONFIGURE_MENU_BUTTON=false` to skip automatic menu-button configuration.
+
 ## Commands
 
 ```text
 /start
-/add_channel <channel_username_or_url>
-/remove_channel <channel_username>
-/list_channels
-/set_interval <seconds_or_minutes>
-/status
 ```
 
 ## Local Development
@@ -31,7 +32,7 @@ uv run python -m src.poller.main
 uv run python -m src.dispatcher.main
 ```
 
-The bot defaults to long polling locally with `TELEGRAM_NEWS_BOT_UPDATE_MODE=polling`. Production Kubernetes config sets `TELEGRAM_NEWS_BOT_UPDATE_MODE=webhook` and registers `https://newsfeedbot.iyazerski.dev/telegram/webhook` with Telegram. Telegram allows only one update mode per bot token; set `TELEGRAM_NEWS_BOT_DELETE_WEBHOOK_ON_POLLING_START=true` locally only when you intentionally want local polling to take over that token.
+The bot defaults to long polling locally with `TELEGRAM_NEWS_BOT_UPDATE_MODE=polling` and also serves the Mini App/API on `http://127.0.0.1:8000`. Production Kubernetes config sets `TELEGRAM_NEWS_BOT_UPDATE_MODE=webhook` and registers `https://newsfeedbot.iyazerski.dev/telegram/webhook` with Telegram. Telegram allows only one update mode per bot token; set `TELEGRAM_NEWS_BOT_DELETE_WEBHOOK_ON_POLLING_START=true` locally only when you intentionally want local polling to take over that token.
 
 ## Code Layout
 

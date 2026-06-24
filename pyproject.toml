@@ -13,9 +13,9 @@ requires-python = ">=3.14"
 license = { text = "Proprietary" }
 version = "0.1.0"
 dependencies = [
-    "aiohttp>=3.14.1",
     "alembic>=1.18.4",
     "beautifulsoup4>=4.14.3",
+    "fastapi>=0.138.0",
     "httpx>=0.28.1",
     "loguru>=0.7.3",
     "nats-py>=2.12.0",
@@ -23,6 +23,7 @@ dependencies = [
     "pydantic>=2.13.3",
     "pydantic-settings>=2.13.1",
     "sqlalchemy>=2.0.48",
+    "uvicorn>=0.49.0",
 ]
 
 [dependency-groups]
@@ -37,6 +38,9 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+[tool.setuptools.package-data]
+"src.bot.mini_app" = ["static/*"]
 
 [tool.uv]
 package = true

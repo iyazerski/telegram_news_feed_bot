@@ -21,6 +21,9 @@ class AppConfigs(BaseSettings):
     bot_webhook_port: int = 8000
     bot_webhook_secret_token: str = ""
     bot_webhook_url: str = ""
+    mini_app_url: str = ""
+    mini_app_auth_max_age_seconds: int = 86_400
+    bot_configure_menu_button: bool = True
     poller_http_timeout_seconds: float = 10.0
     dispatcher_media_max_bytes: int = 10_000_000
     default_poll_interval_seconds: int = 300

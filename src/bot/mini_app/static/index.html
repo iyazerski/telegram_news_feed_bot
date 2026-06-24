@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>News Feed</title>
+    <link rel="stylesheet" href="/app/styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="/app/app.js" defer></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Telegram News Feed</p>
+          <h1>Manage Feed</h1>
+        </div>
+        <div class="status-pill" id="connection-status">Loading</div>
+      </header>
+
+      <section class="summary-grid" aria-label="Feed summary">
+        <article class="metric">
+          <span class="metric-label">Destination</span>
+          <strong class="metric-value" id="destination-value">...</strong>
+        </article>
+        <article class="metric">
+          <span class="metric-label">Interval</span>
+          <strong class="metric-value" id="interval-value">...</strong>
+        </article>
+        <article class="metric">
+          <span class="metric-label">Channels</span>
+          <strong class="metric-value" id="channel-count-value">...</strong>
+        </article>
+      </section>
+
+      <section class="panel" aria-labelledby="channels-heading">
+        <div class="section-heading">
+          <div>
+            <h2 id="channels-heading">Source Channels</h2>
+            <p>Public channels monitored by the poller.</p>
+          </div>
+        </div>
+
+        <form class="form-row" id="add-channel-form">
+          <label class="field-label" for="channel-input">Channel username or URL</label>
+          <div class="input-action">
+            <input id="channel-input" name="channel" autocomplete="off" placeholder="@example or https://t.me/example" />
+            <button type="submit">Add</button>
+          </div>
+        </form>
+
+        <div class="channel-list" id="channel-list"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="settings-heading">
+        <div class="section-heading">
+          <div>
+            <h2 id="settings-heading">Polling</h2>
+            <p>How often the source channels are checked.</p>
+          </div>
+        </div>
+
+        <form class="form-row" id="interval-form">
+          <label class="field-label" for="interval-input">Interval</label>
+          <div class="preset-row" role="group" aria-label="Interval presets">
+            <button type="button" data-interval="1m">1m</button>
+            <button type="button" data-interval="5m">5m</button>
+            <button type="button" data-interval="15m">15m</button>
+            <button type="button" data-interval="1h">1h</button>
+          </div>
+          <div class="input-action">
+            <input id="interval-input" name="interval" autocomplete="off" placeholder="5m, 300s, or 1h" />
+            <button type="submit">Save</button>
+          </div>
+        </form>
+      </section>
+
+      <p class="message" id="message" role="status"></p>
+    </main>
+  </body>
+</html>

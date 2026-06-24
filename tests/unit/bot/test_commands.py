@@ -12,6 +12,14 @@ pytestmark = pytest.mark.unit
 
 
 class BotCommandHandlerTest(unittest.TestCase):
+    intro_text = "\n".join(
+        [
+            "Your personal Telegram news feed is ready 📰",
+            "Collect posts from public channels in one place, tune your sources, and keep the updates flowing automatically ✨",
+            "Open the menu to manage your feed👇",
+        ]
+    )
+
     def setUp(self) -> None:
         """
         Create an isolated command handler backed by an in-memory database.
@@ -20,23 +28,17 @@ class BotCommandHandlerTest(unittest.TestCase):
         Base.metadata.create_all(self.db.engine)
         self.handler = BotCommandHandler(AppConfigs(), self.db, SettingsService())
 
-    def test_add_and_list_channel(self) -> None:
+    def test_unknown_command_returns_intro_text(self) -> None:
         """
-        Verify channel commands persist and report a source subscription.
+        Verify unknown text returns the product introduction.
         """
-        self.assertEqual("Added @example.", self.handler.handle_text("/add_channel https://t.me/example"))
-        self.assertEqual(
-            "Source channels:\n- @example (last committed: 0)",
-            self.handler.handle_text("/list_channels"),
-        )
+        self.assertEqual(self.intro_text, self.handler.handle_text("/add_channel https://t.me/example"))
 
-    def test_status_reports_destination_and_interval(self) -> None:
+    def test_start_sets_destination_and_returns_intro_text(self) -> None:
         """
-        Verify status reflects bot-chat destination and polling interval settings.
+        Verify start binds the destination chat and returns the product introduction.
         """
-        self.assertIn("This chat is now the feed destination.", self.handler.start(12345))
-        self.assertEqual("Polling interval set to 300 seconds.", self.handler.handle_text("/set_interval 5m"))
         self.assertEqual(
-            "Destination: this bot chat\nPolling interval: 300 seconds\nActive channels: 0",
-            self.handler.handle_text("/status"),
+            f"This chat is now the feed destination.\n\n{self.intro_text}",
+            self.handler.start(12345),
         )
