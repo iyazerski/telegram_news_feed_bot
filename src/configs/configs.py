@@ -22,6 +22,7 @@ class AppConfigs(BaseSettings):
     bot_webhook_secret_token: str = ""
     bot_webhook_url: str = ""
     poller_http_timeout_seconds: float = 10.0
+    dispatcher_media_max_bytes: int = 10_000_000
     default_poll_interval_seconds: int = 300
     telegram_http_timeout_seconds: float = 20.0
     telegram_get_updates_timeout_seconds: int = 50

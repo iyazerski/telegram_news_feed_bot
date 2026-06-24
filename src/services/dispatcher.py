@@ -32,6 +32,7 @@ class TelegramForwardingService:
         self.settings = settings
         self.channels = ChannelService()
         self.media_timeout_seconds = configs.telegram_http_timeout_seconds
+        self.media_max_bytes = configs.dispatcher_media_max_bytes
         self.telegram = TelegramBotApi(configs.bot_token, configs.telegram_http_timeout_seconds)
 
     async def forward_event(self, event: PostReferenceEvent) -> DeliveryResult:
@@ -50,6 +51,10 @@ class TelegramForwardingService:
         try:
             await self.deliver_post(destination, event)
         except TelegramApiError as exc:
+            if self.is_retryable_telegram_error(exc):
+                return DeliveryResult(action="retry")
+
+            self.commit_event(event)
             return DeliveryResult(action="term", error=exc.description)
         except httpx.HTTPError:
             return DeliveryResult(action="retry")
@@ -85,23 +90,49 @@ class TelegramForwardingService:
         media: list[TelegramUpload] = []
         async with httpx.AsyncClient(timeout=self.media_timeout_seconds) as client:
             for index, media_url in enumerate(media_urls[:MEDIA_GROUP_LIMIT]):
-                response = await client.get(media_url)
-                response.raise_for_status()
-                raw_content_type = response.headers.get("content-type")
-                if raw_content_type is None:
-                    raise UnsupportedPreviewMediaError("Telegram preview media response has no content type")
-
-                content_type = self.extract_supported_content_type(raw_content_type)
+                content, content_type = await self.download_media_file(client, media_url)
                 media.append(
                     TelegramUpload(
                         field_name=f"media{index}",
                         filename=f"telegram-media-{index}.{SUPPORTED_MEDIA_CONTENT_TYPES[content_type]}",
-                        content=response.content,
+                        content=content,
                         content_type=content_type,
                     )
                 )
 
         return media
+
+    async def download_media_file(self, client: httpx.AsyncClient, media_url: str) -> tuple[bytes, str]:
+        """
+        Download one preview media file with a strict in-memory size cap.
+        """
+        content = bytearray()
+        async with client.stream("GET", media_url) as response:
+            response.raise_for_status()
+            raw_content_type = response.headers.get("content-type")
+            if raw_content_type is None:
+                raise UnsupportedPreviewMediaError("Telegram preview media response has no content type")
+
+            content_type = self.extract_supported_content_type(raw_content_type)
+            raw_content_length = response.headers.get("content-length")
+            if raw_content_length is not None:
+                if not raw_content_length.isdecimal():
+                    raise UnsupportedPreviewMediaError("Telegram preview media response has invalid content length")
+                if int(raw_content_length) > self.media_max_bytes:
+                    raise UnsupportedPreviewMediaError("Telegram preview media response is too large")
+
+            async for chunk in response.aiter_bytes():
+                content.extend(chunk)
+                if len(content) > self.media_max_bytes:
+                    raise UnsupportedPreviewMediaError("Telegram preview media response is too large")
+
+        return bytes(content), content_type
+
+    def is_retryable_telegram_error(self, error: TelegramApiError) -> bool:
+        """
+        Return whether Telegram rejected delivery for a transient reason.
+        """
+        return error.error_code == 429 or error.error_code >= 500
 
     def extract_supported_content_type(self, raw_content_type: str) -> str:
         """
