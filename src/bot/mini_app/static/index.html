@@ -12,39 +12,24 @@
     <main class="shell">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Telegram News Feed</p>
-          <h1>Manage Feed</h1>
+          <p class="eyebrow">NewsIY</p>
+          <h1>Your News Feed</h1>
+          <p class="lead">Follow the channels you care about and get fresh posts gathered into one clean feed.</p>
         </div>
-        <div class="status-pill" id="connection-status">Loading</div>
       </header>
-
-      <section class="summary-grid" aria-label="Feed summary">
-        <article class="metric">
-          <span class="metric-label">Destination</span>
-          <strong class="metric-value" id="destination-value">...</strong>
-        </article>
-        <article class="metric">
-          <span class="metric-label">Interval</span>
-          <strong class="metric-value" id="interval-value">...</strong>
-        </article>
-        <article class="metric">
-          <span class="metric-label">Channels</span>
-          <strong class="metric-value" id="channel-count-value">...</strong>
-        </article>
-      </section>
 
       <section class="panel" aria-labelledby="channels-heading">
         <div class="section-heading">
           <div>
-            <h2 id="channels-heading">Source Channels</h2>
-            <p>Public channels monitored by the poller.</p>
+            <h2 id="channels-heading">Subscriptions</h2>
+            <p>Add the channels you love. Remove anything that no longer earns a place in your feed.</p>
           </div>
         </div>
 
         <form class="form-row" id="add-channel-form">
-          <label class="field-label" for="channel-input">Channel username or URL</label>
+          <label class="field-label" for="channel-input">Add a channel</label>
           <div class="input-action">
-            <input id="channel-input" name="channel" autocomplete="off" placeholder="@example or https://t.me/example" />
+            <input id="channel-input" name="channel" autocomplete="off" placeholder="@example or t.me/example" />
             <button type="submit">Add</button>
           </div>
         </form>
@@ -55,24 +40,17 @@
       <section class="panel" aria-labelledby="settings-heading">
         <div class="section-heading">
           <div>
-            <h2 id="settings-heading">Polling</h2>
-            <p>How often the source channels are checked.</p>
+            <h2 id="settings-heading">Update Rhythm</h2>
+            <p>Choose how often your feed looks for fresh posts.</p>
           </div>
         </div>
 
-        <form class="form-row" id="interval-form">
-          <label class="field-label" for="interval-input">Interval</label>
-          <div class="preset-row" role="group" aria-label="Interval presets">
-            <button type="button" data-interval="1m">1m</button>
-            <button type="button" data-interval="5m">5m</button>
-            <button type="button" data-interval="15m">15m</button>
-            <button type="button" data-interval="1h">1h</button>
-          </div>
-          <div class="input-action">
-            <input id="interval-input" name="interval" autocomplete="off" placeholder="5m, 300s, or 1h" />
-            <button type="submit">Save</button>
-          </div>
-        </form>
+        <div class="preset-row" role="group" aria-label="Update rhythm">
+          <button type="button" data-interval="1m">1m</button>
+          <button type="button" data-interval="5m">5m</button>
+          <button type="button" data-interval="15m">15m</button>
+          <button type="button" data-interval="1h">1h</button>
+        </div>
       </section>
 
       <p class="message" id="message" role="status"></p>

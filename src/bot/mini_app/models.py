@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -16,12 +18,10 @@ class TelegramMiniAppSession(BaseModel):
 
 class ChannelResponse(BaseModel):
     username: str
-    last_committed_message_id: int
     url: str
 
 
 class AppStateResponse(BaseModel):
-    destination_chat_id: str | None
     poll_interval_seconds: int
     channels: list[ChannelResponse]
 
@@ -31,4 +31,4 @@ class AddChannelRequest(BaseModel):
 
 
 class PollIntervalRequest(BaseModel):
-    interval: str = Field(min_length=1)
+    interval: Literal["1m", "5m", "15m", "1h"]

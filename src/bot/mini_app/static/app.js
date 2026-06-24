@@ -2,19 +2,14 @@ const telegram = window.Telegram?.WebApp;
 const state = {
   initData: telegram?.initData ?? "",
   busy: false,
+  currentInterval: "",
 };
 
 const elements = {
-  status: document.querySelector("#connection-status"),
-  destination: document.querySelector("#destination-value"),
-  interval: document.querySelector("#interval-value"),
-  channelCount: document.querySelector("#channel-count-value"),
   channelList: document.querySelector("#channel-list"),
   message: document.querySelector("#message"),
   addForm: document.querySelector("#add-channel-form"),
   channelInput: document.querySelector("#channel-input"),
-  intervalForm: document.querySelector("#interval-form"),
-  intervalInput: document.querySelector("#interval-input"),
   presetButtons: document.querySelectorAll("[data-interval]"),
 };
 
@@ -23,8 +18,7 @@ function boot() {
   telegram?.expand();
 
   if (!state.initData) {
-    setStatus("Open in Telegram", "error");
-    setMessage("Telegram authentication data is unavailable.", true);
+    setMessage("Open this from Telegram to manage your feed.", true);
     return;
   }
 
@@ -48,24 +42,17 @@ function bindEvents() {
     elements.channelInput.value = "";
   });
 
-  elements.intervalForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const interval = elements.intervalInput.value.trim();
-    if (!interval) {
-      setMessage("Enter a polling interval.", true);
-      return;
-    }
-
-    await mutate("/api/settings/poll-interval", {
-      method: "PATCH",
-      body: JSON.stringify({ interval }),
-    });
-  });
-
   elements.presetButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      elements.intervalInput.value = button.dataset.interval;
-      elements.intervalInput.focus();
+    button.addEventListener("click", async () => {
+      const interval = button.dataset.interval;
+      if (interval === state.currentInterval) {
+        return;
+      }
+
+      await mutate("/api/settings/poll-interval", {
+        method: "PATCH",
+        body: JSON.stringify({ interval }),
+      });
     });
   });
 }
@@ -75,10 +62,8 @@ async function loadState() {
   try {
     const data = await apiFetch("/api/state");
     renderState(data);
-    setStatus("Ready", "ready");
     setMessage("");
   } catch (error) {
-    setStatus("Error", "error");
     setMessage(error.message, true);
   } finally {
     setBusy(false);
@@ -90,11 +75,9 @@ async function mutate(path, options) {
   try {
     const data = await apiFetch(path, options);
     renderState(data);
-    setStatus("Saved", "ready");
-    setMessage("Saved.");
+    setMessage("Updated.");
     telegram?.HapticFeedback?.notificationOccurred("success");
   } catch (error) {
-    setStatus("Error", "error");
     setMessage(error.message, true);
     telegram?.HapticFeedback?.notificationOccurred("error");
   } finally {
@@ -121,12 +104,17 @@ async function apiFetch(path, options = {}) {
 }
 
 function renderState(data) {
-  elements.destination.textContent = data.destination_chat_id ? "Configured" : "Not set";
-  elements.destination.title = data.destination_chat_id ?? "";
-  elements.interval.textContent = formatInterval(data.poll_interval_seconds);
-  elements.channelCount.textContent = String(data.channels.length);
-  elements.intervalInput.value = formatInterval(data.poll_interval_seconds);
+  state.currentInterval = formatInterval(data.poll_interval_seconds);
+  renderIntervalButtons();
   renderChannels(data.channels);
+}
+
+function renderIntervalButtons() {
+  elements.presetButtons.forEach((button) => {
+    const isSelected = button.dataset.interval === state.currentInterval;
+    button.classList.toggle("is-selected", isSelected);
+    button.setAttribute("aria-pressed", String(isSelected));
+  });
 }
 
 function renderChannels(channels) {
@@ -135,7 +123,7 @@ function renderChannels(channels) {
   if (channels.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty";
-    empty.textContent = "No source channels configured.";
+    empty.textContent = "Start by adding the first channel you want to follow.";
     elements.channelList.append(empty);
     return;
   }
@@ -154,10 +142,6 @@ function renderChannels(channels) {
     link.rel = "noreferrer";
     link.textContent = `@${channel.username}`;
 
-    const meta = document.createElement("span");
-    meta.className = "channel-meta";
-    meta.textContent = `Last committed: ${channel.last_committed_message_id}`;
-
     const removeButton = document.createElement("button");
     removeButton.className = "remove-button";
     removeButton.type = "button";
@@ -168,7 +152,7 @@ function renderChannels(channels) {
       });
     });
 
-    main.append(link, meta);
+    main.append(link);
     row.append(main, removeButton);
     elements.channelList.append(row);
   });
@@ -189,11 +173,6 @@ function setBusy(isBusy) {
   document.querySelectorAll("button, input").forEach((element) => {
     element.disabled = isBusy;
   });
-}
-
-function setStatus(text, className) {
-  elements.status.textContent = text;
-  elements.status.className = `status-pill ${className}`;
 }
 
 function setMessage(text, isError = false) {

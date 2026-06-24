@@ -145,7 +145,7 @@ class TelegramForwardingService:
 
     def build_message_text(self, event: PostReferenceEvent) -> str:
         """
-        Build repost text with preserved HTML and a linked channel header.
+        Build repost text with preserved HTML and a plain channel header.
         """
         channel_header = self.build_channel_header(event)
         if event.text_html:
@@ -154,11 +154,10 @@ class TelegramForwardingService:
 
     def build_channel_header(self, event: PostReferenceEvent) -> str:
         """
-        Build a bold, underlined channel header linked to the source Telegram post.
+        Build a bold, underlined channel header that does not affect link previews.
         """
         display_name = html.escape(event.channel_display_name, quote=False)
-        post_url = html.escape(event.post_url, quote=True)
-        return f'<a href="{post_url}"><b><u>{display_name}</u></b></a>'
+        return f"<b><u>{display_name}</u></b>"
 
     def build_media_caption(self, event: PostReferenceEvent) -> str:
         """

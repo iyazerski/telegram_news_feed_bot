@@ -92,10 +92,7 @@ class TelegramForwardingServiceTest(unittest.IsolatedAsyncioTestCase):
             [
                 (
                     "@dest",
-                    (
-                        '<a href="https://t.me/example/42"><b><u>Example News</u></b></a>\n\n'
-                        'Hello <a href="https://example.com">world</a>'
-                    ),
+                    ('<b><u>Example News</u></b>\n\nHello <a href="https://example.com">world</a>'),
                 )
             ],
             self.telegram.sent_messages,
@@ -123,7 +120,7 @@ class TelegramForwardingServiceTest(unittest.IsolatedAsyncioTestCase):
                         content=b"photo-0",
                         content_type="image/jpeg",
                     ),
-                    '<a href="https://t.me/example/42"><b><u>Example News</u></b></a>\n\n<b>Hello</b>',
+                    "<b><u>Example News</u></b>\n\n<b>Hello</b>",
                 )
             ],
             self.telegram.sent_photos,
@@ -164,10 +161,7 @@ class TelegramForwardingServiceTest(unittest.IsolatedAsyncioTestCase):
                             content_type="image/jpeg",
                         ),
                     ],
-                    (
-                        '<a href="https://t.me/example/42"><b><u>Example News</u></b></a>\n\n'
-                        '<b>Hello</b> <a href="https://example.com">world</a>'
-                    ),
+                    ('<b><u>Example News</u></b>\n\n<b>Hello</b> <a href="https://example.com">world</a>'),
                 )
             ],
             self.telegram.sent_media_groups,

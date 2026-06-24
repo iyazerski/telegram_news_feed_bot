@@ -14,7 +14,13 @@ from src.configs.configs import AppConfigs
 from src.orm.database import Database
 from src.services.channels import ChannelService
 from src.services.settings import SettingsService
-from src.utils.telegram import parse_duration_seconds
+
+POLL_INTERVAL_SECONDS = {
+    "1m": 60,
+    "5m": 300,
+    "15m": 900,
+    "1h": 3_600,
+}
 
 
 def create_mini_app_api_router(configs: AppConfigs, db: Database, settings: SettingsService) -> APIRouter:
@@ -45,19 +51,16 @@ def create_mini_app_api_router(configs: AppConfigs, db: Database, settings: Sett
         """
         with db.create_session() as database_session:
             active_channels = channels.list_active_channels(database_session)
-            destination_chat_id = settings.get_destination_chat_id(database_session)
             poll_interval_seconds = settings.get_poll_interval_seconds(
                 database_session,
                 configs.default_poll_interval_seconds,
             )
 
         return AppStateResponse(
-            destination_chat_id=destination_chat_id,
             poll_interval_seconds=poll_interval_seconds,
             channels=[
                 ChannelResponse(
                     username=channel.username,
-                    last_committed_message_id=channel.last_committed_message_id,
                     url=f"https://t.me/{channel.username}",
                 )
                 for channel in active_channels
@@ -104,15 +107,10 @@ def create_mini_app_api_router(configs: AppConfigs, db: Database, settings: Sett
         _session: Annotated[TelegramMiniAppSession, Depends(authenticate_admin)],
     ) -> AppStateResponse:
         """
-        Update the polling interval from a duration string and return the updated dashboard state.
+        Update the polling interval from a preset and return the updated dashboard state.
         """
-        try:
-            seconds = parse_duration_seconds(request.interval)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
         with db.create_session() as database_session:
-            settings.set_poll_interval_seconds(database_session, seconds)
+            settings.set_poll_interval_seconds(database_session, POLL_INTERVAL_SECONDS[request.interval])
             database_session.commit()
 
         return get_state(_session)
