@@ -2,7 +2,7 @@ import unittest
 
 import pytest
 
-from src.utils.telegram import normalize_channel_username, parse_duration_seconds
+from src.utils.telegram import normalize_channel_username
 
 pytestmark = pytest.mark.unit
 
@@ -14,11 +14,3 @@ class TelegramUtilsTest(unittest.TestCase):
         """
         self.assertEqual("example", normalize_channel_username("https://t.me/Example"))
         self.assertEqual("example", normalize_channel_username("@Example"))
-
-    def test_parse_duration_seconds_accepts_supported_units(self) -> None:
-        """
-        Verify compact interval strings convert to seconds.
-        """
-        self.assertEqual(300, parse_duration_seconds("5m"))
-        self.assertEqual(7200, parse_duration_seconds("2h"))
-        self.assertEqual(45, parse_duration_seconds("45"))

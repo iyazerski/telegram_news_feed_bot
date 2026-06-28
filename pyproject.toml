@@ -33,6 +33,7 @@ dev = [
     "pytest>=9.0.2",
     "ruff>=0.15.5",
     "ty>=0.0.21",
+    "vulture>=2.16",
 ]
 
 [tool.setuptools.packages.find]
@@ -77,3 +78,17 @@ ignore = ["TRY","PGH","D","DOC","TD","C90","FLY","EM","G","PERF401","DTZ","RET50
 
 [tool.ruff.format]
 quote-style = "double"
+
+[tool.vulture]
+paths = ["src", "tests"]
+ignore_decorators = ["@router.*", "@app.*"]
+ignore_names = [
+    "created_at",
+    "first_name",
+    "handlers",
+    "language_code",
+    "last_name",
+    "model_config",
+    "pytestmark",
+    "updated_at",
+]

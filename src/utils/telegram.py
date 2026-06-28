@@ -20,21 +20,3 @@ def normalize_channel_username(username_or_url: str) -> str:
         raise ValueError("Channel username must not include a message path")
 
     return value
-
-
-def parse_duration_seconds(value: str) -> int:
-    """
-    Parse a compact duration like 300, 5m, or 1h into seconds.
-    """
-    text = value.strip().lower()
-    if text.endswith("m"):
-        seconds = int(text[:-1]) * 60
-    elif text.endswith("h"):
-        seconds = int(text[:-1]) * 3600
-    else:
-        seconds = int(text)
-
-    if seconds <= 0:
-        raise ValueError("Interval must be positive")
-
-    return seconds
