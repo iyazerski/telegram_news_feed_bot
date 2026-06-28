@@ -200,8 +200,7 @@ class BotRuntime:
         command = text.strip().split(maxsplit=1)[0].split("@", maxsplit=1)[0].lower()
         if command == "/start":
             response = self.handler.start(chat_id)
-        else:
-            response = self.handler.handle_text(text)
+
         await self.send_response(chat_id, response)
 
     async def send_response(self, chat_id: int | str, response: str) -> None:
