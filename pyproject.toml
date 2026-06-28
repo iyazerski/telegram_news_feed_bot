@@ -42,7 +42,7 @@ where = ["."]
 include = ["src*"]
 
 [tool.setuptools.package-data]
-"src.bot.mini_app" = ["static/*"]
+"src.entrypoints.bot.mini_app" = ["static/*"]
 
 [tool.uv]
 package = true

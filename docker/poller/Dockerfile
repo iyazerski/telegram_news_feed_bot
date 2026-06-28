@@ -26,4 +26,4 @@ USER appuser
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "-m", "src.poller.main"]
+CMD ["python", "-m", "src.entrypoints.poller.main"]

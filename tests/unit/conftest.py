@@ -1,9 +1,9 @@
 import pytest
 
-from src.configs.configs import AppConfigs
-from src.models.database import Base
-from src.orm.database import Database
-from src.services.settings import SettingsService
+from src.config.configs import AppConfigs
+from src.infrastructure.database.models import Base
+from src.infrastructure.database.orm import Database
+from src.use_cases.manage_settings import SettingsService
 
 
 @pytest.fixture

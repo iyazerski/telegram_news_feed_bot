@@ -27,16 +27,17 @@ Set `TELEGRAM_NEWS_MINI_APP_URL` to a public HTTPS URL when running a local test
 ```bash
 uv sync --group dev
 uv run alembic upgrade head
-uv run python -m src.bot.main
-uv run python -m src.poller.main
-uv run python -m src.dispatcher.main
+uv run python -m src.entrypoints.bot.main
+uv run python -m src.entrypoints.poller.main
+uv run python -m src.entrypoints.dispatcher.main
 ```
 
 The bot defaults to long polling locally with `TELEGRAM_NEWS_BOT_UPDATE_MODE=polling` and also serves the Mini App/API on `http://127.0.0.1:8000`. Production Kubernetes config sets `TELEGRAM_NEWS_BOT_UPDATE_MODE=webhook` and registers `https://newsfeedbot.iyazerski.dev/telegram/webhook` with Telegram. Telegram allows only one update mode per bot token; set `TELEGRAM_NEWS_BOT_DELETE_WEBHOOK_ON_POLLING_START=true` locally only when you intentionally want local polling to take over that token.
 
 ## Code Layout
 
-- `src/bot`, `src/poller`, and `src/dispatcher` contain microservice runtimes and public handlers.
-- `src/services` contains shared business and integration services.
-- `src/models` contains internal data models, Pydantic schemas, dataclasses, and SQLAlchemy table models.
+- `src/entrypoints` contains microservice runtimes, HTTP routes, commands, and process wiring.
+- `src/use_cases` contains workflows such as channel management, polling discovery, and post delivery.
+- `src/domain` contains transport-free business concepts and decisions.
+- `src/infrastructure` contains database, NATS, Telegram Bot API, web-preview parsing, and other adapters.
 - `tests/unit` mirrors the `src` package layout for focused unit coverage.
