@@ -7,3 +7,12 @@ class TelegramApiError(Exception):
         self.method = method
         self.description = description
         self.error_code = error_code
+
+
+class TelegramWebPreviewUnavailableError(Exception):
+    def __init__(self, username: str) -> None:
+        """
+        Create an exception for exhausted Telegram web preview connection attempts.
+        """
+        super().__init__(f"Telegram web preview is unavailable for @{username}")
+        self.username = username

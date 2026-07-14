@@ -5,6 +5,7 @@ from src.config.configs import AppConfigs
 from src.infrastructure.database.models import SourceChannel
 from src.infrastructure.database.orm import Database
 from src.infrastructure.messaging.events import PostReferenceEvent
+from src.infrastructure.telegram.errors import TelegramWebPreviewUnavailableError
 from src.infrastructure.telegram.web_preview_client import TelegramWebPreviewClient
 from src.infrastructure.telegram.web_preview_parser import TelegramWebPreviewParser
 from src.use_cases.manage_channels import ChannelService
@@ -28,8 +29,12 @@ class PublicChannelPoller:
         with self.db.create_session() as session:
             channels = self.channels.list_active_channels(session)
 
+        # Isolate expected preview availability failures to the affected channel.
         for channel in channels:
-            await self.poll_channel(nats_client, channel)
+            try:
+                await self.poll_channel(nats_client, channel)
+            except TelegramWebPreviewUnavailableError:
+                logger.warning(f"Telegram web preview unavailable for @{channel.username}; retrying next poll cycle")
 
     async def poll_channel(self, nats_client: Client, channel: SourceChannel) -> None:
         """
