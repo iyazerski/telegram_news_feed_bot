@@ -292,6 +292,31 @@ async def test_forward_event_sends_video_message(
 
 
 @pytest.mark.asyncio
+async def test_forward_event_sends_source_link_when_media_is_not_exposed(
+    forwarding_harness: ForwardingHarness,
+    event_factory: EventFactory,
+) -> None:
+    """
+    Verify unsupported preview media does not become a channel-only message.
+    """
+    event = event_factory("", [])
+
+    result = await forwarding_harness.service.forward_event(event)
+
+    assert result.action == "ack"
+    assert forwarding_harness.telegram.sent_messages == [
+        (
+            "@dest",
+            "<b><u>Example News</u></b>\n\nhttps://t.me/example/42",
+        )
+    ]
+    assert forwarding_harness.telegram.sent_photos == []
+    assert forwarding_harness.telegram.sent_videos == []
+    assert forwarding_harness.telegram.sent_media_groups == []
+    assert_committed_message_id(forwarding_harness.db, 42)
+
+
+@pytest.mark.asyncio
 async def test_forward_event_sends_oversized_text_without_trimming(
     forwarding_harness: ForwardingHarness,
     event_factory: EventFactory,

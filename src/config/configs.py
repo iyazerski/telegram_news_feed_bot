@@ -25,7 +25,7 @@ class AppConfigs(BaseSettings):
     mini_app_auth_max_age_seconds: int = 86_400
     bot_configure_menu_button: bool = True
     poller_http_timeout_seconds: float = 10.0
-    dispatcher_media_max_bytes: int = 10_000_000
+    dispatcher_media_max_bytes: int = 50_000_000
     default_poll_interval_seconds: int = 300
     telegram_http_timeout_seconds: float = 20.0
     telegram_get_updates_timeout_seconds: int = 50

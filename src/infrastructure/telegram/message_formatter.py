@@ -10,6 +10,7 @@ TEXT_MESSAGE_LIMIT = 4096
 class TelegramMessageSource(Protocol):
     channel_display_name: str
     text_html: str
+    post_url: str
 
 
 class TelegramMessageFormatter:
@@ -66,12 +67,14 @@ class TelegramMessageFormatter:
 
     def build_message_text(self, event: TelegramMessageSource) -> str:
         """
-        Build repost text with preserved HTML and a plain channel header.
+        Build repost text with preserved HTML and a fallback source link.
         """
         channel_header = self.build_channel_header(event)
         if event.text_html:
             return f"{channel_header}\n\n{event.text_html}"
-        return channel_header
+
+        source_link = html.escape(event.post_url, quote=False)
+        return f"{channel_header}\n\n{source_link}"
 
     def build_channel_header(self, event: TelegramMessageSource) -> str:
         """

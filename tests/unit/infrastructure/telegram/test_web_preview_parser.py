@@ -30,6 +30,10 @@ def telegram_preview_html() -> str:
         <a class="tgme_widget_message_owner_name" href="https://t.me/example"><span>Example News</span></a>
         <div class="tgme_widget_message_text js-message_text">Second</div>
       </div>
+      <div class="tgme_widget_message" data-post="example/16">
+        <a class="tgme_widget_message_owner_name" href="https://t.me/example"><span>Example News</span></a>
+        <div class="message_media_not_supported_wrap">Please open Telegram to view this post</div>
+      </div>
     </section>
     """
 
@@ -40,7 +44,7 @@ def test_parse_extracts_matching_channel_message_metadata(telegram_preview_html:
     """
     posts = TelegramWebPreviewParser().parse("example", telegram_preview_html)
 
-    assert [post.message_id for post in posts] == [12, 14]
+    assert [post.message_id for post in posts] == [12, 14, 16]
     assert posts[0].channel_display_name == "Example News"
     assert posts[0].post_url == "https://t.me/example/12"
     assert posts[0].media_urls == [
@@ -49,3 +53,5 @@ def test_parse_extracts_matching_channel_message_metadata(telegram_preview_html:
         "https://cdn.example/video.mp4",
     ]
     assert posts[0].text_html == 'Hello <b>bold</b>\n\n<a href="https://example.com">link</a>\n👉'
+    assert posts[2].text_html == ""
+    assert posts[2].media_urls == []
