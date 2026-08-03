@@ -26,6 +26,7 @@ class FakeTelegramApi(TelegramBotApi):
         """
         self.sent_messages: list[tuple[int | str, str]] = []
         self.sent_photos: list[tuple[int | str, TelegramUpload, str]] = []
+        self.sent_videos: list[tuple[int | str, TelegramUpload, str]] = []
         self.sent_media_groups: list[tuple[int | str, list[TelegramUpload], str]] = []
 
     async def send_html_message(self, chat_id: int | str, text: str) -> None:
@@ -40,11 +41,17 @@ class FakeTelegramApi(TelegramBotApi):
         """
         self.sent_photos.append((chat_id, photo, caption))
 
-    async def send_media_group(self, chat_id: int | str, photos: list[TelegramUpload], caption: str) -> None:
+    async def send_video(self, chat_id: int | str, video: TelegramUpload, caption: str) -> None:
+        """
+        Record a sent video message request.
+        """
+        self.sent_videos.append((chat_id, video, caption))
+
+    async def send_media_group(self, chat_id: int | str, media: list[TelegramUpload], caption: str) -> None:
         """
         Record a sent media group request.
         """
-        self.sent_media_groups.append((chat_id, photos, caption))
+        self.sent_media_groups.append((chat_id, media, caption))
 
 
 @dataclass(frozen=True)
@@ -68,13 +75,14 @@ class FakeTelegramMediaDownloader(TelegramMediaDownloader):
         Create deterministic uploaded media for dispatcher tests.
         """
         media: list[TelegramUpload] = []
-        for index, _media_url in enumerate(media_urls):
+        for index, media_url in enumerate(media_urls):
+            is_video = media_url.endswith(".mp4")
             media.append(
                 TelegramUpload(
                     field_name=f"media{index}",
-                    filename=f"telegram-media-{index}.jpg",
-                    content=f"photo-{index}".encode(),
-                    content_type="image/jpeg",
+                    filename=f"telegram-media-{index}.{'mp4' if is_video else 'jpg'}",
+                    content=f"{'video' if is_video else 'photo'}-{index}".encode(),
+                    content_type="video/mp4" if is_video else "image/jpeg",
                 )
             )
         return media
@@ -250,3 +258,81 @@ async def test_forward_event_skips_already_committed_message(
     assert forwarding_harness.telegram.sent_messages == []
     assert forwarding_harness.telegram.sent_photos == []
     assert forwarding_harness.telegram.sent_media_groups == []
+
+
+@pytest.mark.asyncio
+async def test_forward_event_sends_video_message(
+    forwarding_harness: ForwardingHarness,
+    event_factory: EventFactory,
+) -> None:
+    """
+    Verify a video source post is sent through Telegram's video endpoint.
+    """
+    event = event_factory("Video", ["https://cdn.example/video.mp4"])
+
+    result = await forwarding_harness.service.forward_event(event)
+
+    assert result.action == "ack"
+    assert forwarding_harness.telegram.sent_videos == [
+        (
+            "@dest",
+            TelegramUpload(
+                field_name="media0",
+                filename="telegram-media-0.mp4",
+                content=b"video-0",
+                content_type="video/mp4",
+            ),
+            "<b><u>Example News</u></b>\n\nVideo",
+        )
+    ]
+    assert forwarding_harness.telegram.sent_photos == []
+    assert forwarding_harness.telegram.sent_messages == []
+    assert forwarding_harness.telegram.sent_media_groups == []
+    assert_committed_message_id(forwarding_harness.db, 42)
+
+
+@pytest.mark.asyncio
+async def test_forward_event_sends_oversized_text_without_trimming(
+    forwarding_harness: ForwardingHarness,
+    event_factory: EventFactory,
+) -> None:
+    """
+    Verify a text-only source post is split into complete messages instead of truncated.
+    """
+    body = "a" * 5000
+    event = event_factory(body, [])
+
+    result = await forwarding_harness.service.forward_event(event)
+
+    assert result.action == "ack"
+    assert len(forwarding_harness.telegram.sent_messages) == 2
+    plain_messages = [
+        forwarding_harness.service.formatter.html_to_plain_text(message)
+        for _, message in forwarding_harness.telegram.sent_messages
+    ]
+    assert "".join(plain_messages) == f"Example News\n\n{body}"
+    assert all(len(message) <= 4096 for message in plain_messages)
+    assert "…" not in "".join(plain_messages)
+    assert forwarding_harness.telegram.sent_photos == []
+    assert forwarding_harness.telegram.sent_videos == []
+    assert forwarding_harness.telegram.sent_media_groups == []
+
+
+@pytest.mark.asyncio
+async def test_forward_event_sends_full_body_when_header_overflows_media_caption(
+    forwarding_harness: ForwardingHarness,
+    event_factory: EventFactory,
+) -> None:
+    """
+    Verify adding the channel header does not trim a body that otherwise fits a media caption.
+    """
+    body = "a" * 1020
+    event = event_factory(body, ["https://cdn.example/photo.jpg"])
+
+    result = await forwarding_harness.service.forward_event(event)
+
+    assert result.action == "ack"
+    assert forwarding_harness.telegram.sent_photos[0][2] == "<b><u>Example News</u></b>"
+    assert forwarding_harness.telegram.sent_messages == [("@dest", body)]
+    assert forwarding_harness.telegram.sent_videos == []
+    assert_committed_message_id(forwarding_harness.db, 42)

@@ -84,22 +84,33 @@ class TelegramBotApi:
             files={"photo": (photo.filename, photo.content, photo.content_type)},
         )
 
-    async def send_media_group(self, chat_id: int | str, photos: list[TelegramUpload], caption: str) -> None:
+    async def send_video(self, chat_id: int | str, video: TelegramUpload, caption: str) -> None:
         """
-        Send uploaded photos as one grouped album message to a Telegram chat.
+        Send an uploaded video message with an HTML caption to a Telegram chat.
         """
-        media: list[dict[str, str]] = []
+        await self._post(
+            "sendVideo",
+            {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"},
+            files={"video": (video.filename, video.content, video.content_type)},
+        )
+
+    async def send_media_group(self, chat_id: int | str, media: list[TelegramUpload], caption: str) -> None:
+        """
+        Send uploaded photos and videos as one grouped album message to a Telegram chat.
+        """
+        media_payload: list[dict[str, str]] = []
         files: TelegramFiles = {}
-        for index, photo in enumerate(photos):
-            media_item = {"type": "photo", "media": f"attach://{photo.field_name}"}
+        for index, media_file in enumerate(media):
+            media_type = "video" if media_file.content_type.startswith("video/") else "photo"
+            media_item = {"type": media_type, "media": f"attach://{media_file.field_name}"}
             if index == 0:
                 media_item["caption"] = caption
                 media_item["parse_mode"] = "HTML"
 
-            media.append(media_item)
-            files[photo.field_name] = (photo.filename, photo.content, photo.content_type)
+            media_payload.append(media_item)
+            files[media_file.field_name] = (media_file.filename, media_file.content, media_file.content_type)
 
-        await self._post("sendMediaGroup", {"chat_id": chat_id, "media": json.dumps(media)}, files=files)
+        await self._post("sendMediaGroup", {"chat_id": chat_id, "media": json.dumps(media_payload)}, files=files)
 
     async def _post(
         self,

@@ -3,17 +3,17 @@ import httpx
 from src.infrastructure.telegram.uploads import TelegramUpload
 
 MEDIA_GROUP_LIMIT = 10
-SUPPORTED_MEDIA_CONTENT_TYPES = {"image/jpeg": "jpg", "image/png": "png"}
+SUPPORTED_MEDIA_CONTENT_TYPES = {"image/jpeg": "jpg", "image/png": "png", "video/mp4": "mp4"}
 
 
 class UnsupportedPreviewMediaError(Exception):
-    """Represent preview media that cannot be uploaded as a Telegram photo."""
+    """Represent preview media that cannot be uploaded through the Telegram Bot API."""
 
 
 class TelegramMediaDownloader:
     def __init__(self, timeout_seconds: float, max_bytes: int) -> None:
         """
-        Create a downloader for Telegram preview media that can become Bot API uploads.
+        Create a downloader for Telegram preview media that can become Bot API media uploads.
         """
         self.timeout_seconds = timeout_seconds
         self.max_bytes = max_bytes
@@ -65,7 +65,7 @@ class TelegramMediaDownloader:
 
     def extract_supported_content_type(self, raw_content_type: str) -> str:
         """
-        Validate and normalize a downloaded media content type for Telegram photo upload.
+        Validate and normalize a downloaded media content type for Telegram media upload.
         """
         content_type = raw_content_type.split(";", maxsplit=1)[0].lower()
         if content_type not in SUPPORTED_MEDIA_CONTENT_TYPES:

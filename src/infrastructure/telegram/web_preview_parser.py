@@ -125,19 +125,30 @@ class TelegramWebPreviewParser:
 
     def _extract_media_urls(self, message_node: Tag) -> list[str]:
         """
-        Extract image URLs from a preview message node.
+        Extract photo and video URLs from a preview message node in publication order.
         """
         media_urls: list[str] = []
-        for photo_node in message_node.select(".tgme_widget_message_photo_wrap"):
-            style = photo_node.get("style")
-            if not isinstance(style, str):
+        for media_node in message_node.select(".tgme_widget_message_photo_wrap, .tgme_widget_message_video_wrap"):
+            class_names = media_node.get_attribute_list("class")
+            if "tgme_widget_message_photo_wrap" in class_names:
+                style = media_node.get("style")
+                if not isinstance(style, str):
+                    continue
+
+                match = BACKGROUND_IMAGE_RE.search(style)
+                if match is None:
+                    continue
+
+                media_urls.append(self._normalize_media_url(match.group("url")))
                 continue
 
-            match = BACKGROUND_IMAGE_RE.search(style)
-            if match is None:
+            video_node = media_node.select_one("video")
+            if video_node is None:
                 continue
 
-            media_urls.append(self._normalize_media_url(match.group("url")))
+            media_url = video_node.get("src")
+            if isinstance(media_url, str):
+                media_urls.append(self._normalize_media_url(media_url))
 
         return media_urls
 

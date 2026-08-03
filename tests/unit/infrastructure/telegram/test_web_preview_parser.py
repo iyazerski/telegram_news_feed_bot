@@ -16,6 +16,9 @@ def telegram_preview_html() -> str:
         <a class="tgme_widget_message_owner_name" href="https://t.me/example"><span>Example News</span></a>
         <a class="tgme_widget_message_photo_wrap" style="background-image:url('//cdn.example/photo.jpg')"></a>
         <a class="tgme_widget_message_photo_wrap" style="background-image:url('https://cdn.example/photo-2.jpg')"></a>
+        <div class="tgme_widget_message_video_wrap">
+          <video class="tgme_widget_message_video" src="//cdn.example/video.mp4"></video>
+        </div>
         <div class="tgme_widget_message_text js-message_text">
           Hello <b>bold</b><br>
           <a href="https://example.com">link</a>
@@ -40,5 +43,9 @@ def test_parse_extracts_matching_channel_message_metadata(telegram_preview_html:
     assert [post.message_id for post in posts] == [12, 14]
     assert posts[0].channel_display_name == "Example News"
     assert posts[0].post_url == "https://t.me/example/12"
-    assert posts[0].media_urls == ["https://cdn.example/photo.jpg", "https://cdn.example/photo-2.jpg"]
+    assert posts[0].media_urls == [
+        "https://cdn.example/photo.jpg",
+        "https://cdn.example/photo-2.jpg",
+        "https://cdn.example/video.mp4",
+    ]
     assert posts[0].text_html == 'Hello <b>bold</b>\n\n<a href="https://example.com">link</a>\n👉'

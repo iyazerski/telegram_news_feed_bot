@@ -63,18 +63,40 @@ class TelegramForwardingService:
         try:
             media = await self.media_downloader.download_media(event.media_urls)
         except UnsupportedPreviewMediaError:
-            await self.telegram.send_html_message(destination, self.formatter.build_text_message(event))
+            await self.send_text_messages(destination, event)
             return
 
         if len(media) == 1:
-            await self.telegram.send_photo(destination, media[0], caption_html)
+            if media[0].content_type.startswith("video/"):
+                await self.telegram.send_video(destination, media[0], caption_html)
+            else:
+                await self.telegram.send_photo(destination, media[0], caption_html)
+            await self.send_body_messages(destination, event, caption_html)
             return
 
         if len(media) > 1:
             await self.telegram.send_media_group(destination, media, caption_html)
+            await self.send_body_messages(destination, event, caption_html)
             return
 
-        await self.telegram.send_html_message(destination, self.formatter.build_text_message(event))
+        await self.send_text_messages(destination, event)
+
+    async def send_text_messages(self, destination: str, event: PostReferenceEvent) -> None:
+        """
+        Send all text chunks required to deliver a source post without truncation.
+        """
+        for message in self.formatter.build_text_messages(event):
+            await self.telegram.send_html_message(destination, message)
+
+    async def send_body_messages(self, destination: str, event: PostReferenceEvent, caption_html: str) -> None:
+        """
+        Send the body separately when the media caption could not contain the full source text.
+        """
+        if caption_html == self.formatter.build_message_text(event):
+            return
+
+        for message in self.formatter.build_body_messages(event):
+            await self.telegram.send_html_message(destination, message)
 
     def is_retryable_telegram_error(self, error: TelegramApiError) -> bool:
         """
