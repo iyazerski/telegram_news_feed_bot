@@ -9,3 +9,4 @@ class DiscoveredTelegramPost:
     text_html: str
     media_urls: list[str]
     post_url: str
+    media_unavailable: bool = False

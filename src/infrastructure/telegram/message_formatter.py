@@ -11,6 +11,7 @@ class TelegramMessageSource(Protocol):
     channel_display_name: str
     text_html: str
     post_url: str
+    media_unavailable: bool
 
 
 class TelegramMessageFormatter:
@@ -34,7 +35,7 @@ class TelegramMessageFormatter:
 
         channel_header = self.build_channel_header(event)
         header_plain_text = self.html_to_plain_text(channel_header)
-        body_text = self.html_to_plain_text(event.text_html)
+        body_text = self.html_to_plain_text(self.build_message_body(event))
         first_body_limit = TEXT_MESSAGE_LIMIT - len(header_plain_text) - 2
         if first_body_limit <= 0:
             return self.split_plain_text(self.html_to_plain_text(message_html), TEXT_MESSAGE_LIMIT)
@@ -54,12 +55,11 @@ class TelegramMessageFormatter:
         """
         Build follow-up messages for an oversized media caption without repeating the header.
         """
-        body_text = self.html_to_plain_text(event.text_html)
-        if not body_text:
-            return []
+        body_html = self.build_message_body(event)
+        body_text = self.html_to_plain_text(body_html)
 
         if len(body_text) <= TEXT_MESSAGE_LIMIT:
-            return [event.text_html]
+            return [body_html]
 
         return [
             html.escape(body_part, quote=False) for body_part in self.split_plain_text(body_text, TEXT_MESSAGE_LIMIT)
@@ -70,11 +70,19 @@ class TelegramMessageFormatter:
         Build repost text with preserved HTML and a fallback source link.
         """
         channel_header = self.build_channel_header(event)
-        if event.text_html:
-            return f"{channel_header}\n\n{event.text_html}"
+        return f"{channel_header}\n\n{self.build_message_body(event)}"
+
+    def build_message_body(self, event: TelegramMessageSource) -> str:
+        """
+        Build the source body and append its URL when media is unavailable.
+        """
+        if event.text_html and not event.media_unavailable:
+            return event.text_html
 
         source_link = html.escape(event.post_url, quote=False)
-        return f"{channel_header}\n\n{source_link}"
+        if event.text_html:
+            return f"{event.text_html}\n\n{source_link}"
+        return source_link
 
     def build_channel_header(self, event: TelegramMessageSource) -> str:
         """

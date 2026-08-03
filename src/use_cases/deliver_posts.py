@@ -62,8 +62,8 @@ class TelegramForwardingService:
         caption_html = self.formatter.build_media_caption(event)
         try:
             media = await self.media_downloader.download_media(event.media_urls)
-        except UnsupportedPreviewMediaError:
-            await self.send_text_messages(destination, event)
+        except UnsupportedPreviewMediaError, httpx.HTTPError:
+            await self.send_text_messages(destination, event.model_copy(update={"media_unavailable": True}))
             return
 
         if len(media) == 1:

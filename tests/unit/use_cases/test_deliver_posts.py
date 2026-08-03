@@ -2,13 +2,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 
 from src.config.configs import AppConfigs
 from src.infrastructure.database.orm import Database
 from src.infrastructure.messaging.events import PostReferenceEvent
 from src.infrastructure.telegram.bot_api import TelegramBotApi
-from src.infrastructure.telegram.media_downloader import TelegramMediaDownloader
+from src.infrastructure.telegram.media_downloader import TelegramMediaDownloader, UnsupportedPreviewMediaError
 from src.infrastructure.telegram.uploads import TelegramUpload
 from src.use_cases.deliver_posts import TelegramForwardingService
 from src.use_cases.manage_channels import ChannelService
@@ -86,6 +87,32 @@ class FakeTelegramMediaDownloader(TelegramMediaDownloader):
                 )
             )
         return media
+
+
+class FailingTelegramMediaDownloader(TelegramMediaDownloader):
+    def __init__(self) -> None:
+        """
+        Create a fake downloader that reports unavailable media.
+        """
+
+    async def download_media(self, _media_urls: list[str]) -> list[TelegramUpload]:
+        """
+        Report a media download failure for dispatcher tests.
+        """
+        raise UnsupportedPreviewMediaError("media unavailable")
+
+
+class HttpErrorTelegramMediaDownloader(TelegramMediaDownloader):
+    def __init__(self) -> None:
+        """
+        Create a fake downloader that reports an HTTP media failure.
+        """
+
+    async def download_media(self, _media_urls: list[str]) -> list[TelegramUpload]:
+        """
+        Report an HTTP failure for dispatcher tests.
+        """
+        raise httpx.HTTPError("media download failed")
 
 
 @pytest.fixture
@@ -299,7 +326,7 @@ async def test_forward_event_sends_source_link_when_media_is_not_exposed(
     """
     Verify unsupported preview media does not become a channel-only message.
     """
-    event = event_factory("", [])
+    event = event_factory("Post text", []).model_copy(update={"media_unavailable": True})
 
     result = await forwarding_harness.service.forward_event(event)
 
@@ -307,7 +334,59 @@ async def test_forward_event_sends_source_link_when_media_is_not_exposed(
     assert forwarding_harness.telegram.sent_messages == [
         (
             "@dest",
-            "<b><u>Example News</u></b>\n\nhttps://t.me/example/42",
+            "<b><u>Example News</u></b>\n\nPost text\n\nhttps://t.me/example/42",
+        )
+    ]
+    assert forwarding_harness.telegram.sent_photos == []
+    assert forwarding_harness.telegram.sent_videos == []
+    assert forwarding_harness.telegram.sent_media_groups == []
+    assert_committed_message_id(forwarding_harness.db, 42)
+
+
+@pytest.mark.asyncio
+async def test_forward_event_sends_source_link_when_media_download_fails(
+    forwarding_harness: ForwardingHarness,
+    event_factory: EventFactory,
+) -> None:
+    """
+    Verify media download failures preserve the original source post link.
+    """
+    forwarding_harness.service.media_downloader = FailingTelegramMediaDownloader()
+    event = event_factory("Post text", ["https://cdn.example/photo.jpg"])
+
+    result = await forwarding_harness.service.forward_event(event)
+
+    assert result.action == "ack"
+    assert forwarding_harness.telegram.sent_messages == [
+        (
+            "@dest",
+            "<b><u>Example News</u></b>\n\nPost text\n\nhttps://t.me/example/42",
+        )
+    ]
+    assert forwarding_harness.telegram.sent_photos == []
+    assert forwarding_harness.telegram.sent_videos == []
+    assert forwarding_harness.telegram.sent_media_groups == []
+    assert_committed_message_id(forwarding_harness.db, 42)
+
+
+@pytest.mark.asyncio
+async def test_forward_event_sends_source_link_when_media_download_has_http_error(
+    forwarding_harness: ForwardingHarness,
+    event_factory: EventFactory,
+) -> None:
+    """
+    Verify HTTP media failures preserve the original source post link.
+    """
+    forwarding_harness.service.media_downloader = HttpErrorTelegramMediaDownloader()
+    event = event_factory("Post text", ["https://cdn.example/photo.jpg"])
+
+    result = await forwarding_harness.service.forward_event(event)
+
+    assert result.action == "ack"
+    assert forwarding_harness.telegram.sent_messages == [
+        (
+            "@dest",
+            "<b><u>Example News</u></b>\n\nPost text\n\nhttps://t.me/example/42",
         )
     ]
     assert forwarding_harness.telegram.sent_photos == []

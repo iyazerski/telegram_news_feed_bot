@@ -55,3 +55,4 @@ def test_parse_extracts_matching_channel_message_metadata(telegram_preview_html:
     assert posts[0].text_html == 'Hello <b>bold</b>\n\n<a href="https://example.com">link</a>\n👉'
     assert posts[2].text_html == ""
     assert posts[2].media_urls == []
+    assert posts[2].media_unavailable is True

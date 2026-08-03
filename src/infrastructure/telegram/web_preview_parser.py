@@ -25,14 +25,16 @@ class TelegramWebPreviewParser:
             channel, raw_message_id = self._parse_data_post(data_post)
             if channel == source_channel:
                 message_id = int(raw_message_id)
+                media_urls, media_unavailable = self._extract_media_urls(message_node)
                 posts.append(
                     DiscoveredTelegramPost(
                         source_channel=channel,
                         channel_display_name=self._extract_channel_display_name(message_node),
                         message_id=message_id,
                         text_html=self._extract_text_html(message_node),
-                        media_urls=self._extract_media_urls(message_node),
+                        media_urls=media_urls,
                         post_url=f"https://t.me/{channel}/{message_id}",
+                        media_unavailable=media_unavailable,
                     )
                 )
 
@@ -123,20 +125,23 @@ class TelegramWebPreviewParser:
 
         return inner_html
 
-    def _extract_media_urls(self, message_node: Tag) -> list[str]:
+    def _extract_media_urls(self, message_node: Tag) -> tuple[list[str], bool]:
         """
-        Extract photo and video URLs from a preview message node in publication order.
+        Extract media URLs and identify media that Telegram did not expose.
         """
         media_urls: list[str] = []
+        media_unavailable = False
         for media_node in message_node.select(".tgme_widget_message_photo_wrap, .tgme_widget_message_video_wrap"):
             class_names = media_node.get_attribute_list("class")
             if "tgme_widget_message_photo_wrap" in class_names:
                 style = media_node.get("style")
                 if not isinstance(style, str):
+                    media_unavailable = True
                     continue
 
                 match = BACKGROUND_IMAGE_RE.search(style)
                 if match is None:
+                    media_unavailable = True
                     continue
 
                 media_urls.append(self._normalize_media_url(match.group("url")))
@@ -144,13 +149,19 @@ class TelegramWebPreviewParser:
 
             video_node = media_node.select_one("video")
             if video_node is None:
+                media_unavailable = True
                 continue
 
             media_url = video_node.get("src")
             if isinstance(media_url, str):
                 media_urls.append(self._normalize_media_url(media_url))
+            else:
+                media_unavailable = True
 
-        return media_urls
+        if not media_urls and message_node.select_one(".message_media_not_supported_wrap") is not None:
+            media_unavailable = True
+
+        return media_urls, media_unavailable
 
     def _normalize_media_url(self, media_url: str) -> str:
         """

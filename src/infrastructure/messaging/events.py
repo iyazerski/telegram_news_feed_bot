@@ -15,6 +15,7 @@ class PostReferenceEvent(BaseModel):
     media_urls: list[str]
     post_url: str
     discovered_at: datetime
+    media_unavailable: bool = False
 
     @classmethod
     def create(cls, post: DiscoveredTelegramPost) -> PostReferenceEvent:
@@ -29,4 +30,5 @@ class PostReferenceEvent(BaseModel):
             media_urls=post.media_urls,
             post_url=post.post_url,
             discovered_at=datetime.now(UTC),
+            media_unavailable=post.media_unavailable,
         )
