@@ -11,6 +11,10 @@ def normalize_channel_username(username_or_url: str) -> str:
         parts = [part for part in parsed.path.split("/") if part]
         if parsed.netloc not in {"t.me", "telegram.me"}:
             raise ValueError("Only t.me or telegram.me channel URLs are supported")
+        if not parts:
+            raise ValueError("Telegram channel URL must include a username")
+        if len(parts) > 1:
+            raise ValueError("Telegram channel URL must not include a message path")
         value = parts[0]
 
     value = value.removeprefix("@").strip().lower()

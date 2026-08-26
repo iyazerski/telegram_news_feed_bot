@@ -33,6 +33,7 @@ class PollerRuntime:
                 await asyncio.sleep(self.load_poll_interval_seconds())
         finally:
             await nats_client.close()
+            await self.poller.close()
 
     def load_poll_interval_seconds(self) -> int:
         """

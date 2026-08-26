@@ -24,9 +24,16 @@ class TelegramForwardingService:
         self.formatter = TelegramMessageFormatter()
         self.media_downloader = TelegramMediaDownloader(
             configs.telegram_http_timeout_seconds,
-            configs.dispatcher_media_max_bytes,
+            configs.dispatcher_post_media_max_bytes,
         )
         self.telegram = TelegramBotApi(configs.bot_token, configs.telegram_http_timeout_seconds)
+
+    async def close(self) -> None:
+        """
+        Close persistent HTTP clients owned by the forwarding service.
+        """
+        await self.media_downloader.close()
+        await self.telegram.close()
 
     async def forward_event(self, event: PostReferenceEvent) -> DeliveryResult:
         """

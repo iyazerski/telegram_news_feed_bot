@@ -1,7 +1,10 @@
 from dataclasses import dataclass
+from typing import Literal
+
+DeliveryAction = Literal["ack", "retry", "term"]
 
 
 @dataclass(frozen=True)
 class DeliveryResult:
-    action: str
+    action: DeliveryAction
     error: str | None = None

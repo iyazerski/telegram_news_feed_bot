@@ -32,3 +32,23 @@ class PostReferenceEvent(BaseModel):
             discovered_at=datetime.now(UTC),
             media_unavailable=post.media_unavailable,
         )
+
+
+class PostReferenceBatchEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    posts: list[PostReferenceEvent]
+
+    @classmethod
+    def create(cls, posts: list[DiscoveredTelegramPost]) -> PostReferenceBatchEvent:
+        """
+        Create one chronological batch for posts discovered from the same channel.
+        """
+        if not posts:
+            raise ValueError("A post reference batch requires at least one post")
+
+        source_channel = posts[0].source_channel
+        if any(post.source_channel != source_channel for post in posts):
+            raise ValueError("All posts in a reference batch must belong to the same channel")
+
+        return cls(posts=[PostReferenceEvent.create(post) for post in posts])

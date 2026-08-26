@@ -16,6 +16,13 @@ class TelegramBotApi:
         """
         self.base_url = f"https://api.telegram.org/bot{token}"
         self.timeout_seconds = timeout_seconds
+        self.client = httpx.AsyncClient(timeout=timeout_seconds)
+
+    async def close(self) -> None:
+        """
+        Close the persistent Telegram HTTP client.
+        """
+        await self.client.aclose()
 
     async def get_updates(self, offset: int, timeout_seconds: int) -> list[dict[str, Any]]:
         """
@@ -126,16 +133,52 @@ class TelegramBotApi:
         if timeout_seconds is not None:
             request_timeout_seconds = timeout_seconds
 
-        async with httpx.AsyncClient(timeout=request_timeout_seconds) as client:
-            if files is None:
-                response = await client.post(f"{self.base_url}/{method}", json=payload)
-            else:
-                response = await client.post(f"{self.base_url}/{method}", data=payload, files=files)
-            data = response.json()
+        if files is None:
+            response = await self.client.post(
+                f"{self.base_url}/{method}",
+                json=payload,
+                timeout=request_timeout_seconds,
+            )
+        else:
+            response = await self.client.post(
+                f"{self.base_url}/{method}",
+                data=payload,
+                files=files,
+                timeout=request_timeout_seconds,
+            )
 
+        data = self._decode_response(method, response)
         if not data["ok"]:
             raise TelegramApiError(method, data["description"], data["error_code"])
 
         response.raise_for_status()
+
+        return data
+
+    def _decode_response(self, method: str, response: httpx.Response) -> dict[str, Any]:
+        """
+        Decode and validate one Telegram Bot API response envelope.
+        """
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise httpx.RemoteProtocolError(
+                f"{method} returned an invalid JSON response",
+                request=response.request,
+            ) from exc
+
+        if not isinstance(data, dict) or not isinstance(data.get("ok"), bool):
+            raise httpx.RemoteProtocolError(
+                f"{method} returned an invalid response envelope",
+                request=response.request,
+            )
+
+        if not data["ok"] and (
+            not isinstance(data.get("description"), str) or not isinstance(data.get("error_code"), int)
+        ):
+            raise httpx.RemoteProtocolError(
+                f"{method} returned an invalid error response",
+                request=response.request,
+            )
 
         return data

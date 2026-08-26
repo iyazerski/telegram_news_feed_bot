@@ -3,7 +3,7 @@ from datetime import UTC
 import pytest
 
 from src.domain.posts import DiscoveredTelegramPost
-from src.infrastructure.messaging.events import PostReferenceEvent
+from src.infrastructure.messaging.events import PostReferenceBatchEvent, PostReferenceEvent
 
 pytestmark = pytest.mark.unit
 
@@ -36,3 +36,21 @@ def test_create_builds_forwardable_reference(discovered_post: DiscoveredTelegram
     assert event.media_urls == ["https://cdn.example/photo.jpg"]
     assert event.post_url == "https://t.me/example/123"
     assert event.discovered_at.tzinfo == UTC
+
+
+def test_create_batch_keeps_posts_in_order(discovered_post: DiscoveredTelegramPost) -> None:
+    """
+    Verify a channel batch preserves chronological post order.
+    """
+    later_post = DiscoveredTelegramPost(
+        source_channel="example",
+        channel_display_name="Example News",
+        message_id=124,
+        text_html="Later",
+        media_urls=[],
+        post_url="https://t.me/example/124",
+    )
+
+    batch = PostReferenceBatchEvent.create([discovered_post, later_post])
+
+    assert [post.message_id for post in batch.posts] == [123, 124]

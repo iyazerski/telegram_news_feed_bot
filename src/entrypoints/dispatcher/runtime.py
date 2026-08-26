@@ -5,7 +5,7 @@ from nats.aio.client import Client
 from nats.aio.msg import Msg
 
 from src.config.configs import AppConfigs
-from src.infrastructure.messaging.events import PostReferenceEvent
+from src.infrastructure.messaging.events import PostReferenceBatchEvent, PostReferenceEvent
 from src.infrastructure.messaging.nats import NatsClientFactory
 from src.use_cases.deliver_posts import TelegramForwardingService
 
@@ -31,6 +31,7 @@ class DispatcherRuntime:
             await asyncio.Event().wait()
         finally:
             await nats_client.close()
+            await self.forwarding.close()
 
     async def subscribe(self, nats_client: Client) -> None:
         """
@@ -42,15 +43,25 @@ class DispatcherRuntime:
         """
         Process one plain NATS post reference message.
         """
-        event = PostReferenceEvent.model_validate_json(message.data)
+        batch = PostReferenceBatchEvent.model_validate_json(message.data)
+        for event in batch.posts:
+            should_continue = await self.handle_event(event)
+            if not should_continue:
+                break
+
+    async def handle_event(self, event: PostReferenceEvent) -> bool:
+        """
+        Process one ordered post and return whether later posts may proceed.
+        """
         result = await self.forwarding.forward_event(event)
 
         if result.action == "ack":
             logger.info(f"Processed @{event.source_channel}/{event.message_id}")
-            return
+            return True
 
         if result.action == "term":
             logger.error(f"Telegram rejected @{event.source_channel}/{event.message_id}: {result.error}")
-            return
+            return True
 
         logger.warning(f"Delivery is not ready for @{event.source_channel}/{event.message_id}; waiting for rediscovery")
+        return False

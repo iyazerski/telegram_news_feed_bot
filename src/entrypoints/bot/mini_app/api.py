@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from sqlalchemy.orm import Session
 
 from src.config.configs import AppConfigs
 from src.entrypoints.bot.mini_app.auth import validate_mini_app_init_data
@@ -30,6 +31,26 @@ def create_mini_app_api_router(configs: AppConfigs, db: Database, settings: Sett
     router = APIRouter(prefix="/api")
     channels = ChannelService()
 
+    def build_state(database_session: Session) -> AppStateResponse:
+        """
+        Build the current Mini App state from one database session.
+        """
+        active_channels = channels.list_active_channels(database_session)
+        poll_interval_seconds = settings.get_poll_interval_seconds(
+            database_session,
+            configs.default_poll_interval_seconds,
+        )
+        return AppStateResponse(
+            poll_interval_seconds=poll_interval_seconds,
+            channels=[
+                ChannelResponse(
+                    username=channel.username,
+                    url=f"https://t.me/{channel.username}",
+                )
+                for channel in active_channels
+            ],
+        )
+
     def authenticate_admin(init_data: Annotated[str, Header(alias="X-Telegram-Init-Data")]) -> TelegramMiniAppSession:
         """
         Authenticate one Mini App API request as the configured Telegram admin.
@@ -50,22 +71,7 @@ def create_mini_app_api_router(configs: AppConfigs, db: Database, settings: Sett
         Return the current Mini App dashboard state.
         """
         with db.create_session() as database_session:
-            active_channels = channels.list_active_channels(database_session)
-            poll_interval_seconds = settings.get_poll_interval_seconds(
-                database_session,
-                configs.default_poll_interval_seconds,
-            )
-
-        return AppStateResponse(
-            poll_interval_seconds=poll_interval_seconds,
-            channels=[
-                ChannelResponse(
-                    username=channel.username,
-                    url=f"https://t.me/{channel.username}",
-                )
-                for channel in active_channels
-            ],
-        )
+            return build_state(database_session)
 
     @router.post("/channels", response_model=AppStateResponse)
     def add_channel(
@@ -81,8 +87,7 @@ def create_mini_app_api_router(configs: AppConfigs, db: Database, settings: Sett
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             database_session.commit()
-
-        return get_state(_session)
+            return build_state(database_session)
 
     @router.delete("/channels/{username}", response_model=AppStateResponse)
     def remove_channel(
@@ -98,8 +103,7 @@ def create_mini_app_api_router(configs: AppConfigs, db: Database, settings: Sett
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             database_session.commit()
-
-        return get_state(_session)
+            return build_state(database_session)
 
     @router.patch("/settings/poll-interval", response_model=AppStateResponse)
     def update_poll_interval(
@@ -112,7 +116,6 @@ def create_mini_app_api_router(configs: AppConfigs, db: Database, settings: Sett
         with db.create_session() as database_session:
             settings.set_poll_interval_seconds(database_session, POLL_INTERVAL_SECONDS[request.interval])
             database_session.commit()
-
-        return get_state(_session)
+            return build_state(database_session)
 
     return router

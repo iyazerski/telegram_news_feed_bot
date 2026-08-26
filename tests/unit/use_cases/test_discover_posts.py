@@ -1,8 +1,11 @@
+import asyncio
+
 import httpx
 import pytest
 from nats.aio.client import Client
 
 from src.config.configs import AppConfigs
+from src.infrastructure.database.models import SourceChannel
 from src.infrastructure.database.orm import Database
 from src.infrastructure.telegram.errors import TelegramWebPreviewUnavailableError
 from src.infrastructure.telegram.web_preview_client import TelegramWebPreviewClient
@@ -31,6 +34,25 @@ class RecordingPreviewClient(TelegramWebPreviewClient):
         return "<html></html>"
 
 
+class ConcurrencyRecordingPoller(PublicChannelPoller):
+    def __init__(self, app_configs: AppConfigs, database: Database) -> None:
+        """
+        Create a poller that records the number of simultaneous channel polls.
+        """
+        super().__init__(app_configs, database)
+        self.active_polls = 0
+        self.max_active_polls = 0
+
+    async def poll_channel(self, _nats_client: Client, _channel: SourceChannel) -> None:
+        """
+        Record one bounded poll without contacting Telegram or NATS.
+        """
+        self.active_polls += 1
+        self.max_active_polls = max(self.max_active_polls, self.active_polls)
+        await asyncio.sleep(0)
+        self.active_polls -= 1
+
+
 @pytest.mark.asyncio
 async def test_run_once_defers_unavailable_channel_until_next_cycle(
     app_configs: AppConfigs,
@@ -54,3 +76,24 @@ async def test_run_once_defers_unavailable_channel_until_next_cycle(
     await poller.run_once(nats_client)
 
     assert preview_client.requested_usernames == ["alpha", "beta", "alpha", "beta"]
+
+
+@pytest.mark.asyncio
+async def test_run_once_limits_concurrent_channel_polls(
+    app_configs: AppConfigs,
+    database: Database,
+) -> None:
+    """
+    Verify channel requests run concurrently without exceeding the fixed limit.
+    """
+    with database.create_session() as session:
+        channels = ChannelService()
+        for index in range(12):
+            channels.add_channel(session, f"channel{index}")
+        session.commit()
+
+    poller = ConcurrencyRecordingPoller(app_configs, database)
+    await poller.run_once(Client())
+    await poller.close()
+
+    assert poller.max_active_polls == 10

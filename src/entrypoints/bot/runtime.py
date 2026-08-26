@@ -42,13 +42,16 @@ class BotRuntime:
         """
         Run the configured Telegram update receiver forever.
         """
-        await self.configure_menu_button()
+        try:
+            await self.configure_menu_button()
 
-        if self.configs.bot_update_mode == "webhook":
-            await self.run_webhook_forever()
-            return
+            if self.configs.bot_update_mode == "webhook":
+                await self.run_webhook_forever()
+                return
 
-        await asyncio.gather(self.run_http_server_forever(), self.run_polling_forever())
+            await asyncio.gather(self.run_http_server_forever(), self.run_polling_forever())
+        finally:
+            await self.telegram.close()
 
     async def configure_menu_button(self) -> None:
         """
@@ -199,9 +202,10 @@ class BotRuntime:
             return
 
         command = text.strip().split(maxsplit=1)[0].split("@", maxsplit=1)[0].lower()
-        if command == "/start":
-            response = self.handler.start(chat_id)
+        if command != "/start":
+            return
 
+        response = self.handler.start(chat_id)
         await self.send_response(chat_id, response)
 
     async def send_response(self, chat_id: int | str, response: str) -> None:

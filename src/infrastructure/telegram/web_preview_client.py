@@ -11,21 +11,26 @@ class TelegramWebPreviewClient:
         """
         Create a client for public Telegram channel web preview pages.
         """
-        self.timeout_seconds = timeout_seconds
+        self.client = httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True)
+
+    async def close(self) -> None:
+        """
+        Close the persistent preview HTTP client.
+        """
+        await self.client.aclose()
 
     async def fetch_channel_preview(self, username: str) -> str:
         """
         Fetch a public Telegram channel web preview page with bounded host failover.
         """
-        async with httpx.AsyncClient(timeout=self.timeout_seconds, follow_redirects=True) as client:
-            # Fall back once when the primary Telegram preview host cannot be reached.
+        # Fall back once when the primary Telegram preview host cannot be reached.
+        try:
+            return await self.fetch_from_host(self.client, PRIMARY_PREVIEW_HOST, username)
+        except httpx.ConnectError:
             try:
-                return await self.fetch_from_host(client, PRIMARY_PREVIEW_HOST, username)
-            except httpx.ConnectError:
-                try:
-                    return await self.fetch_from_host(client, FALLBACK_PREVIEW_HOST, username)
-                except httpx.ConnectError as exc:
-                    raise TelegramWebPreviewUnavailableError(username) from exc
+                return await self.fetch_from_host(self.client, FALLBACK_PREVIEW_HOST, username)
+            except httpx.ConnectError as exc:
+                raise TelegramWebPreviewUnavailableError(username) from exc
 
     async def fetch_from_host(self, client: httpx.AsyncClient, host: str, username: str) -> str:
         """

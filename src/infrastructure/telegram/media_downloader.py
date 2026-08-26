@@ -15,34 +15,42 @@ class TelegramMediaDownloader:
         """
         Create a downloader for Telegram preview media that can become Bot API media uploads.
         """
-        self.timeout_seconds = timeout_seconds
         self.max_bytes = max_bytes
+        self.client = httpx.AsyncClient(timeout=timeout_seconds)
+
+    async def close(self) -> None:
+        """
+        Close the persistent media HTTP client.
+        """
+        await self.client.aclose()
 
     async def download_media(self, media_urls: list[str]) -> list[TelegramUpload]:
         """
         Download preview media and prepare multipart upload files for Telegram delivery.
         """
         media: list[TelegramUpload] = []
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-            for index, media_url in enumerate(media_urls[:MEDIA_GROUP_LIMIT]):
-                content, content_type = await self.download_media_file(client, media_url)
-                media.append(
-                    TelegramUpload(
-                        field_name=f"media{index}",
-                        filename=f"telegram-media-{index}.{SUPPORTED_MEDIA_CONTENT_TYPES[content_type]}",
-                        content=content,
-                        content_type=content_type,
-                    )
+        downloaded_bytes = 0
+        for index, media_url in enumerate(media_urls[:MEDIA_GROUP_LIMIT]):
+            remaining_bytes = self.max_bytes - downloaded_bytes
+            content, content_type = await self.download_media_file(media_url, remaining_bytes)
+            downloaded_bytes += len(content)
+            media.append(
+                TelegramUpload(
+                    field_name=f"media{index}",
+                    filename=f"telegram-media-{index}.{SUPPORTED_MEDIA_CONTENT_TYPES[content_type]}",
+                    content=content,
+                    content_type=content_type,
                 )
+            )
 
         return media
 
-    async def download_media_file(self, client: httpx.AsyncClient, media_url: str) -> tuple[bytes, str]:
+    async def download_media_file(self, media_url: str, max_bytes: int) -> tuple[bytes, str]:
         """
-        Download one preview media file with a strict in-memory size cap.
+        Download one preview media file within the remaining post size allowance.
         """
         content = bytearray()
-        async with client.stream("GET", media_url) as response:
+        async with self.client.stream("GET", media_url) as response:
             response.raise_for_status()
             raw_content_type = response.headers.get("content-type")
             if raw_content_type is None:
@@ -53,12 +61,12 @@ class TelegramMediaDownloader:
             if raw_content_length is not None:
                 if not raw_content_length.isdecimal():
                     raise UnsupportedPreviewMediaError("Telegram preview media response has invalid content length")
-                if int(raw_content_length) > self.max_bytes:
+                if int(raw_content_length) > max_bytes:
                     raise UnsupportedPreviewMediaError("Telegram preview media response is too large")
 
             async for chunk in response.aiter_bytes():
                 content.extend(chunk)
-                if len(content) > self.max_bytes:
+                if len(content) > max_bytes:
                     raise UnsupportedPreviewMediaError("Telegram preview media response is too large")
 
         return bytes(content), content_type
