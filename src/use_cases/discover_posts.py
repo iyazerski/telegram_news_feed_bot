@@ -36,36 +36,37 @@ class PublicChannelPoller:
         """
         Poll all active source channels once and publish newly discovered post references.
         """
-        with self.db.create_session() as session:
-            channels = self.channels.list_active_channels(session)
+        after = ""
+        while channels := await asyncio.to_thread(self.load_channel_page, after):
+            async with asyncio.TaskGroup() as task_group:
+                for channel in channels:
+                    task_group.create_task(self.poll_channel_safely(nats_client, channel))
+            after = channels[-1].username
 
-        semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHANNEL_POLLS)
-        async with asyncio.TaskGroup() as task_group:
-            for channel in channels:
-                task_group.create_task(self.poll_channel_safely(nats_client, channel, semaphore))
+    def load_channel_page(self, after: str) -> list[SourceChannel]:
+        """Load one bounded page of channels without holding a session during HTTP requests."""
+        with self.db.create_session() as session:
+            return self.channels.list_active_channels(session, after=after, limit=MAX_CONCURRENT_CHANNEL_POLLS)
 
     async def poll_channel_safely(
         self,
         nats_client: Client,
         channel: SourceChannel,
-        semaphore: asyncio.Semaphore,
     ) -> None:
         """
         Poll one channel within the concurrency limit and isolate availability failures.
         """
-        async with semaphore:
-            try:
-                await self.poll_channel(nats_client, channel)
-            except TelegramWebPreviewUnavailableError:
-                logger.warning(f"Telegram web preview unavailable for @{channel.username}; retrying next poll cycle")
+        try:
+            await self.poll_channel(nats_client, channel)
+        except TelegramWebPreviewUnavailableError:
+            logger.warning(f"Telegram web preview unavailable for @{channel.username}; retrying next poll cycle")
 
     async def poll_channel(self, nats_client: Client, channel: SourceChannel) -> None:
         """
         Poll a single public source channel and publish new post references.
         """
         html = await self.preview_client.fetch_channel_preview(channel.username)
-        posts = self.parser.parse(channel.username, html)
-        new_posts = [post for post in posts if post.message_id > channel.last_committed_message_id]
+        new_posts = self.parser.parse(channel.username, html, channel.last_committed_message_id)
 
         if not new_posts:
             logger.debug(f"No new posts discovered for @{channel.username}")

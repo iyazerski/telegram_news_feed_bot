@@ -1,4 +1,3 @@
-from src.config.configs import AppConfigs
 from src.infrastructure.database.orm import Database
 from src.use_cases.manage_settings import SettingsService
 
@@ -10,11 +9,10 @@ Open the menu to manage your feed👇
 
 
 class BotCommandHandler:
-    def __init__(self, configs: AppConfigs, db: Database, settings: SettingsService) -> None:
+    def __init__(self, db: Database, settings: SettingsService) -> None:
         """
         Create the command handler for Telegram bot text commands.
         """
-        self.configs = configs
         self.db = db
         self.settings = settings
 

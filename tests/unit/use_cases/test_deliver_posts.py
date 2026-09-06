@@ -1,9 +1,13 @@
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import httpx
 import pytest
+from sqlalchemy import event as sqlalchemy_event
+from sqlalchemy.engine import Connection
+from sqlalchemy.engine.interfaces import ExecutionContext
 
 from src.config.configs import AppConfigs
 from src.infrastructure.database.orm import Database
@@ -122,7 +126,7 @@ def forwarding_harness(
     settings_service: SettingsService,
 ) -> ForwardingHarness:
     """
-    Create an isolated forwarding service backed by an in-memory database.
+    Create an isolated forwarding service backed by a temporary database.
     """
     service = TelegramForwardingService(app_configs, database, settings_service)
     telegram = FakeTelegramApi()
@@ -440,3 +444,43 @@ async def test_forward_event_sends_full_body_when_header_overflows_media_caption
     assert forwarding_harness.telegram.sent_messages == [("@dest", body)]
     assert forwarding_harness.telegram.sent_videos == []
     assert_committed_message_id(forwarding_harness.db, 42)
+
+
+@pytest.mark.asyncio
+async def test_delivery_uses_worker_owned_database_operations(
+    forwarding_harness: ForwardingHarness,
+    event_factory: EventFactory,
+) -> None:
+    """Keep all delivery SQL off the event loop and avoid a second cursor read."""
+
+    statements: list[tuple[str, int]] = []
+
+    def record_statement(
+        _connection: Connection,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: ExecutionContext,
+        _executemany: bool,
+    ) -> None:
+        """Record each SQL operation and its executing thread."""
+        statements.append((statement.split(maxsplit=1)[0], threading.get_ident()))
+
+    sqlalchemy_event.listen(forwarding_harness.db.engine, "before_cursor_execute", record_statement)
+    try:
+        await forwarding_harness.service.forward_event(event_factory("Hello", []))
+    finally:
+        sqlalchemy_event.remove(forwarding_harness.db.engine, "before_cursor_execute", record_statement)
+    assert [statement for statement, _ in statements] == ["SELECT", "SELECT", "UPDATE"]
+    assert all(thread != threading.get_ident() for _, thread in statements)
+
+
+def test_commit_cursor_never_moves_backwards(
+    forwarding_harness: ForwardingHarness,
+    event_factory: EventFactory,
+) -> None:
+    """Preserve the latest cursor when an older delivery finishes later."""
+    event = event_factory("Hello", [])
+    forwarding_harness.service.commit_event(event.model_copy(update={"message_id": 50}))
+    forwarding_harness.service.commit_event(event)
+    assert_committed_message_id(forwarding_harness.db, 50)

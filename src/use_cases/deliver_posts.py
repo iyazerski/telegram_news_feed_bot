@@ -1,4 +1,7 @@
+import asyncio
+
 import httpx
+from sqlalchemy import update
 
 from src.config.configs import AppConfigs
 from src.domain.delivery import DeliveryResult
@@ -39,11 +42,9 @@ class TelegramForwardingService:
         """
         Repost one discovered source post as one Telegram bot delivery.
         """
-        with self.db.create_session() as session:
-            channel = self.channels.get_active_channel(session, event.source_channel)
-            if event.message_id <= channel.last_committed_message_id:
-                return DeliveryResult(action="ack")
-            destination = self.settings.get_destination_chat_id(session)
+        committed_message_id, destination = await asyncio.to_thread(self.load_delivery_state, event)
+        if event.message_id <= committed_message_id:
+            return DeliveryResult(action="ack")
 
         if destination is None:
             return DeliveryResult(action="retry")
@@ -54,25 +55,29 @@ class TelegramForwardingService:
             if self.is_retryable_telegram_error(exc):
                 return DeliveryResult(action="retry")
 
-            self.commit_event(event)
+            await asyncio.to_thread(self.commit_event, event)
             return DeliveryResult(action="term", error=exc.description)
         except httpx.HTTPError:
             return DeliveryResult(action="retry")
 
-        self.commit_event(event)
+        await asyncio.to_thread(self.commit_event, event)
         return DeliveryResult(action="ack")
 
     async def deliver_post(self, destination: str, event: PostReferenceEvent) -> None:
         """
         Deliver a discovered source post as one message or grouped album.
         """
-        caption_html = self.formatter.build_media_caption(event)
         try:
             media = await self.media_downloader.download_media(event.media_urls)
         except UnsupportedPreviewMediaError, httpx.HTTPError:
             await self.send_text_messages(destination, event.model_copy(update={"media_unavailable": True}))
             return
 
+        if not media:
+            await self.send_text_messages(destination, event)
+            return
+
+        caption_html = self.formatter.build_media_caption(event)
         if len(media) == 1:
             if media[0].content_type.startswith("video/"):
                 await self.telegram.send_video(destination, media[0], caption_html)
@@ -81,12 +86,8 @@ class TelegramForwardingService:
             await self.send_body_messages(destination, event, caption_html)
             return
 
-        if len(media) > 1:
-            await self.telegram.send_media_group(destination, media, caption_html)
-            await self.send_body_messages(destination, event, caption_html)
-            return
-
-        await self.send_text_messages(destination, event)
+        await self.telegram.send_media_group(destination, media, caption_html)
+        await self.send_body_messages(destination, event, caption_html)
 
     async def send_text_messages(self, destination: str, event: PostReferenceEvent) -> None:
         """
@@ -111,17 +112,24 @@ class TelegramForwardingService:
         """
         return error.error_code == 429 or error.error_code >= 500
 
-    def commit_event(self, event: PostReferenceEvent) -> None:
-        """
-        Advance the source cursor after a post reference has been processed by the dispatcher.
-        """
+    def load_delivery_state(self, event: PostReferenceEvent) -> tuple[int, str | None]:
+        """Read the channel cursor and destination within one worker-owned session."""
         with self.db.create_session() as session:
             channel = self.channels.get_active_channel(session, event.source_channel)
-            self.commit_channel_message(channel, event.message_id)
-            session.commit()
+            if event.message_id <= channel.last_committed_message_id:
+                return channel.last_committed_message_id, None
+            return channel.last_committed_message_id, self.settings.get_destination_chat_id(session)
 
-    def commit_channel_message(self, channel: SourceChannel, message_id: int) -> None:
-        """
-        Advance a channel cursor to the processed message ID.
-        """
-        channel.last_committed_message_id = max(channel.last_committed_message_id, message_id)
+    def commit_event(self, event: PostReferenceEvent) -> None:
+        """Advance the active channel cursor atomically without reading it again."""
+        with self.db.create_session() as session:
+            session.execute(
+                update(SourceChannel)
+                .where(
+                    SourceChannel.username == event.source_channel,
+                    SourceChannel.active,
+                    SourceChannel.last_committed_message_id < event.message_id,
+                )
+                .values(last_committed_message_id=event.message_id)
+            )
+            session.commit()

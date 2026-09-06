@@ -205,7 +205,7 @@ class BotRuntime:
         if command != "/start":
             return
 
-        response = self.handler.start(chat_id)
+        response = await asyncio.to_thread(self.handler.start, chat_id)
         await self.send_response(chat_id, response)
 
     async def send_response(self, chat_id: int | str, response: str) -> None:

@@ -25,13 +25,11 @@ class RecordingTelegramApi(TelegramBotApi):
 
 
 @pytest.fixture
-def command_handler(
-    app_configs: AppConfigs, database: Database, settings_service: SettingsService
-) -> BotCommandHandler:
+def command_handler(database: Database, settings_service: SettingsService) -> BotCommandHandler:
     """
     Create an isolated command handler backed by an in-memory database.
     """
-    return BotCommandHandler(app_configs, database, settings_service)
+    return BotCommandHandler(database, settings_service)
 
 
 def test_start_sets_destination_and_returns_intro_text(command_handler: BotCommandHandler) -> None:
@@ -55,7 +53,7 @@ async def test_runtime_ignores_unsupported_commands(
     """
     app_configs = app_configs.model_copy(update={"admin_user_id": ""})
     telegram = RecordingTelegramApi()
-    handler = BotCommandHandler(app_configs, database, settings_service)
+    handler = BotCommandHandler(database, settings_service)
     runtime = BotRuntime(app_configs, telegram, handler, database, settings_service)
 
     await runtime.handle_update(

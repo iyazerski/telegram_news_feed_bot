@@ -9,7 +9,7 @@ BACKGROUND_IMAGE_RE = re.compile(r"background-image:url\(['\"]?(?P<url>[^'\")]+)
 
 
 class TelegramWebPreviewParser:
-    def parse(self, source_channel: str, html_text: str) -> list[DiscoveredTelegramPost]:
+    def parse(self, source_channel: str, html_text: str, after_message_id: int) -> list[DiscoveredTelegramPost]:
         """
         Extract structured Telegram post metadata from a public channel web preview page.
         """
@@ -25,6 +25,8 @@ class TelegramWebPreviewParser:
             channel, raw_message_id = self._parse_data_post(data_post)
             if channel == source_channel:
                 message_id = int(raw_message_id)
+                if message_id <= after_message_id:
+                    continue
                 media_urls, media_unavailable = self._extract_media_urls(message_node)
                 posts.append(
                     DiscoveredTelegramPost(

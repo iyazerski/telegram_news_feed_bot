@@ -42,7 +42,7 @@ def test_parse_extracts_matching_channel_message_metadata(telegram_preview_html:
     """
     Verify preview parsing returns structured posts from the requested source channel.
     """
-    posts = TelegramWebPreviewParser().parse("example", telegram_preview_html)
+    posts = TelegramWebPreviewParser().parse("example", telegram_preview_html, 0)
 
     assert [post.message_id for post in posts] == [12, 14, 16]
     assert posts[0].channel_display_name == "Example News"
@@ -56,3 +56,10 @@ def test_parse_extracts_matching_channel_message_metadata(telegram_preview_html:
     assert posts[2].text_html == ""
     assert posts[2].media_urls == []
     assert posts[2].media_unavailable is True
+
+
+def test_parse_skips_committed_posts_before_extracting_metadata(telegram_preview_html: str) -> None:
+    """Ignore committed nodes even when their unused metadata is missing."""
+    html = '<div data-post="example/13"></div>' + telegram_preview_html
+    posts = TelegramWebPreviewParser().parse("example", html, 14)
+    assert [post.message_id for post in posts] == [16]

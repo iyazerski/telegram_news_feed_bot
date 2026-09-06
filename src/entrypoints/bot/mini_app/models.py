@@ -21,9 +21,17 @@ class ChannelResponse(BaseModel):
     url: str
 
 
-class AppStateResponse(BaseModel):
-    poll_interval_seconds: int
+class ChannelPageResponse(BaseModel):
     channels: list[ChannelResponse]
+    next_cursor: str | None
+
+
+class SettingsResponse(BaseModel):
+    poll_interval_seconds: int
+
+
+class AppStateResponse(ChannelPageResponse, SettingsResponse):
+    pass
 
 
 class AddChannelRequest(BaseModel):

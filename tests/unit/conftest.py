@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from src.config.configs import AppConfigs
@@ -15,11 +17,11 @@ def app_configs() -> AppConfigs:
 
 
 @pytest.fixture
-def database() -> Database:
+def database(tmp_path: Path) -> Database:
     """
-    Create an isolated in-memory database with the application schema.
+    Create an isolated temporary database with the application schema.
     """
-    db = Database("sqlite:///:memory:")
+    db = Database(f"sqlite:///{tmp_path / 'test.db'}")
     Base.metadata.create_all(db.engine)
     return db
 

@@ -18,7 +18,7 @@ async def run() -> None:
     db = Database(configs.database_url)
     settings = SettingsService()
     telegram = TelegramBotApi(configs.bot_token, configs.telegram_http_timeout_seconds)
-    handler = BotCommandHandler(configs, db, settings)
+    handler = BotCommandHandler(db, settings)
     runtime = BotRuntime(configs, telegram, handler, db, settings)
     await runtime.run_forever()
 

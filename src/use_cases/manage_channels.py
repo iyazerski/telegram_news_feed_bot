@@ -35,11 +35,18 @@ class ChannelService:
         channel.active = False
         return channel
 
-    def list_active_channels(self, session: Session) -> list[SourceChannel]:
+    def list_active_channels(self, session: Session, *, after: str, limit: int) -> list[SourceChannel]:
         """
         Return active source channel subscriptions ordered by username.
         """
-        return list(session.scalars(select(SourceChannel).where(SourceChannel.active).order_by(SourceChannel.username)))
+        return list(
+            session.scalars(
+                select(SourceChannel)
+                .where(SourceChannel.active, SourceChannel.username > after)
+                .order_by(SourceChannel.username)
+                .limit(limit)
+            )
+        )
 
     def get_active_channel(self, session: Session, username: str) -> SourceChannel:
         """

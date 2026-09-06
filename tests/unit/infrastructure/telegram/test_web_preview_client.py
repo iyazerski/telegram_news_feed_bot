@@ -112,7 +112,31 @@ async def test_fetch_channel_preview_does_not_fail_over_after_http_error(monkeyp
 
     install_mock_transport(monkeypatch, handle_request)
 
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(TelegramWebPreviewUnavailableError):
         await TelegramWebPreviewClient(10.0).fetch_channel_preview("example")
 
     assert requested_urls == ["https://t.me/s/example"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fail_primary", [False, True])
+async def test_fetch_channel_preview_normalizes_read_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    fail_primary: bool,
+) -> None:
+    """Translate timeouts from either preview host into a per-channel availability failure."""
+
+    def handle_request(request: httpx.Request) -> httpx.Response:
+        """Fail the primary connection when requested and time out the selected host."""
+        if fail_primary and request.url.host == "t.me":
+            raise httpx.ConnectError("connection failed", request=request)
+        raise httpx.ReadTimeout("read timed out", request=request)
+
+    install_mock_transport(monkeypatch, handle_request)
+    client = TelegramWebPreviewClient(10.0)
+    try:
+        with pytest.raises(TelegramWebPreviewUnavailableError) as error:
+            await client.fetch_channel_preview("example")
+        assert isinstance(error.value.__cause__, httpx.ReadTimeout)
+    finally:
+        await client.close()

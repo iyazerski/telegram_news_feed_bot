@@ -1,12 +1,12 @@
 import asyncio
 
+import nats
 from loguru import logger
 from nats.aio.client import Client
 from nats.aio.msg import Msg
 
 from src.config.configs import AppConfigs
 from src.infrastructure.messaging.events import PostReferenceBatchEvent, PostReferenceEvent
-from src.infrastructure.messaging.nats import NatsClientFactory
 from src.use_cases.deliver_posts import TelegramForwardingService
 
 
@@ -17,13 +17,12 @@ class DispatcherRuntime:
         """
         self.configs = configs
         self.forwarding = forwarding
-        self.nats_factory = NatsClientFactory(configs.nats_url)
 
     async def run_forever(self) -> None:
         """
         Consume post reference events forever and dispatch repost delivery.
         """
-        nats_client = await self.nats_factory.connect()
+        nats_client = await nats.connect(self.configs.nats_url)
         await self.subscribe(nats_client)
         logger.info("Dispatcher connected to NATS")
 

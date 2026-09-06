@@ -90,6 +90,7 @@ ignore_names = [
     "language_code",
     "last_name",
     "model_config",
+    "poll_interval_seconds",
     "pytestmark",
     "updated_at",
 ]

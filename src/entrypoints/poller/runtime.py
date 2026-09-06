@@ -1,10 +1,10 @@
 import asyncio
 
+import nats
 from loguru import logger
 
 from src.config.configs import AppConfigs
 from src.infrastructure.database.orm import Database
-from src.infrastructure.messaging.nats import NatsClientFactory
 from src.use_cases.discover_posts import PublicChannelPoller
 from src.use_cases.manage_settings import SettingsService
 
@@ -17,20 +17,19 @@ class PollerRuntime:
         self.configs = configs
         self.db = db
         self.settings = settings
-        self.nats_factory = NatsClientFactory(configs.nats_url)
         self.poller = PublicChannelPoller(configs, db)
 
     async def run_forever(self) -> None:
         """
         Run Telegram source polling cycles forever.
         """
-        nats_client = await self.nats_factory.connect()
+        nats_client = await nats.connect(self.configs.nats_url)
         logger.info("Poller connected to NATS")
 
         try:
             while True:
                 await self.poller.run_once(nats_client)
-                await asyncio.sleep(self.load_poll_interval_seconds())
+                await asyncio.sleep(await asyncio.to_thread(self.load_poll_interval_seconds))
         finally:
             await nats_client.close()
             await self.poller.close()

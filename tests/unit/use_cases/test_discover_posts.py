@@ -42,11 +42,20 @@ class ConcurrencyRecordingPoller(PublicChannelPoller):
         super().__init__(app_configs, database)
         self.active_polls = 0
         self.max_active_polls = 0
+        self.polled_usernames: list[str] = []
+        self.page_sizes: list[int] = []
+
+    def load_channel_page(self, after: str) -> list[SourceChannel]:
+        """Record the working set size of each database page."""
+        channels = super().load_channel_page(after)
+        self.page_sizes.append(len(channels))
+        return channels
 
     async def poll_channel(self, _nats_client: Client, _channel: SourceChannel) -> None:
         """
         Record one bounded poll without contacting Telegram or NATS.
         """
+        self.polled_usernames.append(_channel.username)
         self.active_polls += 1
         self.max_active_polls = max(self.max_active_polls, self.active_polls)
         await asyncio.sleep(0)
@@ -88,7 +97,7 @@ async def test_run_once_limits_concurrent_channel_polls(
     """
     with database.create_session() as session:
         channels = ChannelService()
-        for index in range(12):
+        for index in range(23):
             channels.add_channel(session, f"channel{index}")
         session.commit()
 
@@ -97,3 +106,5 @@ async def test_run_once_limits_concurrent_channel_polls(
     await poller.close()
 
     assert poller.max_active_polls == 10
+    assert poller.page_sizes == [10, 10, 3, 0]
+    assert sorted(poller.polled_usernames) == sorted(f"channel{index}" for index in range(23))

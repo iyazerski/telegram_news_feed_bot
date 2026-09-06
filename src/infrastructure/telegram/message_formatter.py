@@ -40,14 +40,14 @@ class TelegramMessageFormatter:
         if first_body_limit <= 0:
             return self.split_plain_text(self.html_to_plain_text(message_html), TEXT_MESSAGE_LIMIT)
 
-        body_parts = self.split_plain_text(body_text, first_body_limit)
-        if not body_parts:
+        first_body = body_text[:first_body_limit]
+        if not first_body:
             return [channel_header]
 
-        messages = [f"{channel_header}\n\n{html.escape(body_parts[0], quote=False)}"]
+        messages = [f"{channel_header}\n\n{html.escape(first_body, quote=False)}"]
         messages.extend(
             html.escape(body_part, quote=False)
-            for body_part in self.split_plain_text(body_text[len(body_parts[0]) :], TEXT_MESSAGE_LIMIT)
+            for body_part in self.split_plain_text(body_text[len(first_body) :], TEXT_MESSAGE_LIMIT)
         )
         return messages
 
