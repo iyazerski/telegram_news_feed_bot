@@ -78,13 +78,16 @@ class BotRuntime:
                 updates = await self.telegram.get_updates(offset, self.configs.telegram_get_updates_timeout_seconds)
             except httpx.HTTPError as exc:
                 logger.warning(f"Telegram getUpdates request failed: {exc}")
-                await asyncio.sleep(self.configs.telegram_get_updates_idle_seconds)
+                await asyncio.sleep(self.configs.telegram_get_updates_retry_seconds)
                 continue
 
+            # Long polling already waits for new updates, so the next request starts immediately.
             for update in updates:
                 offset = update["update_id"] + 1
-                await self.handle_update(update)
-            await asyncio.sleep(self.configs.telegram_get_updates_idle_seconds)
+                try:
+                    await self.handle_update(update)
+                except Exception:
+                    logger.exception(f"Failed to handle Telegram update {update['update_id']}")
 
     async def run_webhook_forever(self) -> None:
         """

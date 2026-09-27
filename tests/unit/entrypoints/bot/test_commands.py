@@ -1,3 +1,6 @@
+import asyncio
+from typing import Any
+
 import pytest
 
 from src.config.configs import AppConfigs
@@ -22,6 +25,35 @@ class RecordingTelegramApi(TelegramBotApi):
         Record one plain command response.
         """
         self.sent_messages.append((chat_id, text))
+
+
+class ScriptedUpdatesTelegramApi(RecordingTelegramApi):
+    def __init__(self, updates: list[dict[str, Any]]) -> None:
+        """
+        Create a Telegram API fake that returns one update batch and then stops polling.
+        """
+        super().__init__()
+        self.updates = updates
+        self.requested_offsets: list[int] = []
+
+    async def get_updates(self, offset: int, _timeout_seconds: int) -> list[dict[str, Any]]:
+        """
+        Record the requested offset, return scripted updates once, and then cancel the loop.
+        """
+        self.requested_offsets.append(offset)
+        if len(self.requested_offsets) > 1:
+            raise asyncio.CancelledError
+        return self.updates
+
+
+class FailingFirstChatCommandHandler(BotCommandHandler):
+    def start(self, chat_id: int | str) -> str:
+        """
+        Fail the first chat as a database outage would and handle other chats normally.
+        """
+        if chat_id == 1:
+            raise RuntimeError("database is unavailable")
+        return super().start(chat_id)
 
 
 @pytest.fixture
@@ -67,3 +99,31 @@ async def test_runtime_ignores_unsupported_commands(
     )
 
     assert telegram.sent_messages == []
+
+
+def create_start_update(update_id: int, chat_id: int) -> dict[str, Any]:
+    """
+    Create one Telegram /start update for a chat.
+    """
+    return {"update_id": update_id, "message": {"text": "/start", "from": {"id": 123}, "chat": {"id": chat_id}}}
+
+
+@pytest.mark.asyncio
+async def test_polling_isolates_failed_update_and_polls_again_immediately(
+    app_configs: AppConfigs,
+    database: Database,
+    settings_service: SettingsService,
+) -> None:
+    """
+    Verify one failing update does not stop polling and the next long poll starts without a delay.
+    """
+    app_configs = app_configs.model_copy(update={"admin_user_id": "", "telegram_get_updates_retry_seconds": 60})
+    telegram = ScriptedUpdatesTelegramApi([create_start_update(10, 1), create_start_update(11, 2)])
+    handler = FailingFirstChatCommandHandler(database, settings_service)
+    runtime = BotRuntime(app_configs, telegram, handler, database, settings_service)
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(runtime.run_polling_forever(), timeout=5)
+
+    assert telegram.sent_messages == [(2, HELP_TEXT)]
+    assert telegram.requested_offsets == [0, 12]

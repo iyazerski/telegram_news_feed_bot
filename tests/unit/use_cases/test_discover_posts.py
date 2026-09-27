@@ -24,14 +24,35 @@ class RecordingPreviewClient(TelegramWebPreviewClient):
 
     async def fetch_channel_preview(self, username: str) -> str:
         """
-        Record a request, fail alpha, and return an empty preview for other channels.
+        Record a request, fail alpha, return an unparsable page for broken, and an empty preview otherwise.
         """
         self.requested_usernames.append(username)
+        if username == "broken":
+            # A matching post without an owner name makes the parser reject the page.
+            return '<div data-post="broken/1"></div>'
         if username == "alpha":
             request = httpx.Request("GET", "https://telegram.me/s/alpha")
             error = httpx.ConnectError("Name or service not known", request=request)
             raise TelegramWebPreviewUnavailableError(username) from error
         return "<html></html>"
+
+
+class SlowFirstChannelPoller(PublicChannelPoller):
+    def __init__(self, app_configs: AppConfigs, database: Database) -> None:
+        """
+        Create a poller whose first channel waits until a channel from a later page is polled.
+        """
+        super().__init__(app_configs, database)
+        self.later_page_polled = asyncio.Event()
+
+    async def poll_channel(self, _nats_client: Client, channel: SourceChannel) -> None:
+        """
+        Block the first channel until the last channel runs, without contacting Telegram or NATS.
+        """
+        if channel.username == "channel00":
+            await self.later_page_polled.wait()
+        if channel.username == "channel10":
+            self.later_page_polled.set()
 
 
 class ConcurrencyRecordingPoller(PublicChannelPoller):
@@ -108,3 +129,47 @@ async def test_run_once_limits_concurrent_channel_polls(
     assert poller.max_active_polls == 10
     assert poller.page_sizes == [10, 10, 3, 0]
     assert sorted(poller.polled_usernames) == sorted(f"channel{index}" for index in range(23))
+
+
+@pytest.mark.asyncio
+async def test_run_once_isolates_unexpected_channel_failures(
+    app_configs: AppConfigs,
+    database: Database,
+) -> None:
+    """
+    Verify a channel whose preview cannot be parsed does not stop other channels.
+    """
+    with database.create_session() as session:
+        channels = ChannelService()
+        channels.add_channel(session, "beta")
+        channels.add_channel(session, "broken")
+        session.commit()
+
+    poller = PublicChannelPoller(app_configs, database)
+    preview_client = RecordingPreviewClient()
+    poller.preview_client = preview_client
+
+    await poller.run_once(Client())
+
+    assert preview_client.requested_usernames == ["beta", "broken"]
+
+
+@pytest.mark.asyncio
+async def test_run_once_does_not_wait_for_slow_channel_before_next_page(
+    app_configs: AppConfigs,
+    database: Database,
+) -> None:
+    """
+    Verify a slow channel frees other slots so channels from later pages still run.
+    """
+    with database.create_session() as session:
+        channels = ChannelService()
+        for index in range(11):
+            channels.add_channel(session, f"channel{index:02d}")
+        session.commit()
+
+    poller = SlowFirstChannelPoller(app_configs, database)
+    await asyncio.wait_for(poller.run_once(Client()), timeout=5)
+    await poller.close()
+
+    assert poller.later_page_polled.is_set()

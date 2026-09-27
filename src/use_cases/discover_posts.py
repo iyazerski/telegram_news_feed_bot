@@ -36,12 +36,16 @@ class PublicChannelPoller:
         """
         Poll all active source channels once and publish newly discovered post references.
         """
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHANNEL_POLLS)
         after = ""
-        while channels := await asyncio.to_thread(self.load_channel_page, after):
-            async with asyncio.TaskGroup() as task_group:
+        async with asyncio.TaskGroup() as task_group:
+            while channels := await asyncio.to_thread(self.load_channel_page, after):
                 for channel in channels:
-                    task_group.create_task(self.poll_channel_safely(nats_client, channel))
-            after = channels[-1].username
+                    # Start each channel as soon as a slot frees up so one slow channel cannot stall a page.
+                    await semaphore.acquire()
+                    task = task_group.create_task(self.poll_channel_safely(nats_client, channel))
+                    task.add_done_callback(lambda _task: semaphore.release())
+                after = channels[-1].username
 
     def load_channel_page(self, after: str) -> list[SourceChannel]:
         """Load one bounded page of channels without holding a session during HTTP requests."""
@@ -54,12 +58,14 @@ class PublicChannelPoller:
         channel: SourceChannel,
     ) -> None:
         """
-        Poll one channel within the concurrency limit and isolate availability failures.
+        Poll one channel and isolate its failures from other channels in the same cycle.
         """
         try:
             await self.poll_channel(nats_client, channel)
         except TelegramWebPreviewUnavailableError:
             logger.warning(f"Telegram web preview unavailable for @{channel.username}; retrying next poll cycle")
+        except Exception:
+            logger.exception(f"Failed to poll @{channel.username}; retrying next poll cycle")
 
     async def poll_channel(self, nats_client: Client, channel: SourceChannel) -> None:
         """

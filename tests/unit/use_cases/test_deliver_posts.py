@@ -169,7 +169,8 @@ def assert_committed_message_id(db: Database, expected_message_id: int) -> None:
     Verify the channel committed cursor value.
     """
     with db.create_session() as session:
-        channel = ChannelService().get_active_channel(session, "example")
+        channel = ChannelService().find_active_channel(session, "example")
+        assert channel is not None
         assert channel.last_committed_message_id == expected_message_id
 
 
@@ -277,7 +278,8 @@ async def test_forward_event_skips_already_committed_message(
     Verify rediscovered old messages are ignored without reposting.
     """
     with forwarding_harness.db.create_session() as session:
-        channel = ChannelService().get_active_channel(session, "example")
+        channel = ChannelService().find_active_channel(session, "example")
+        assert channel is not None
         channel.last_committed_message_id = 42
         session.commit()
 
@@ -289,6 +291,24 @@ async def test_forward_event_skips_already_committed_message(
     assert forwarding_harness.telegram.sent_messages == []
     assert forwarding_harness.telegram.sent_photos == []
     assert forwarding_harness.telegram.sent_media_groups == []
+
+
+@pytest.mark.asyncio
+async def test_forward_event_skips_removed_channel(
+    forwarding_harness: ForwardingHarness,
+    event_factory: EventFactory,
+) -> None:
+    """
+    Verify posts of a channel removed after discovery are skipped without delivery.
+    """
+    with forwarding_harness.db.create_session() as session:
+        ChannelService().remove_channel(session, "example")
+        session.commit()
+
+    result = await forwarding_harness.service.forward_event(event_factory("Hello", []))
+
+    assert result.action == "skip"
+    assert forwarding_harness.telegram.sent_messages == []
 
 
 @pytest.mark.asyncio

@@ -29,7 +29,7 @@ class AppConfigs(BaseSettings):
     default_poll_interval_seconds: int = 300
     telegram_http_timeout_seconds: float = 20.0
     telegram_get_updates_timeout_seconds: int = 50
-    telegram_get_updates_idle_seconds: int = 2
+    telegram_get_updates_retry_seconds: int = 2
 
 
 def load_configs() -> AppConfigs:

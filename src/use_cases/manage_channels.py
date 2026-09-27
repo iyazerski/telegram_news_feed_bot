@@ -48,11 +48,8 @@ class ChannelService:
             )
         )
 
-    def get_active_channel(self, session: Session, username: str) -> SourceChannel:
+    def find_active_channel(self, session: Session, username: str) -> SourceChannel | None:
         """
-        Return an active source channel by normalized username.
+        Return an active source channel by normalized username, or None when it is missing or removed.
         """
-        channel = session.scalar(select(SourceChannel).where(SourceChannel.username == username, SourceChannel.active))
-        if channel is None:
-            raise ValueError(f"Active channel @{username} is not configured")
-        return channel
+        return session.scalar(select(SourceChannel).where(SourceChannel.username == username, SourceChannel.active))

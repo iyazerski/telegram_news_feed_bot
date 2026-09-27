@@ -42,8 +42,11 @@ class TelegramForwardingService:
         """
         Repost one discovered source post as one Telegram bot delivery.
         """
-        committed_message_id, destination = await asyncio.to_thread(self.load_delivery_state, event)
-        if event.message_id <= committed_message_id:
+        channel, destination = await asyncio.to_thread(self.load_delivery_state, event)
+        if channel is None:
+            return DeliveryResult(action="skip")
+
+        if event.message_id <= channel.last_committed_message_id:
             return DeliveryResult(action="ack")
 
         if destination is None:
@@ -112,13 +115,13 @@ class TelegramForwardingService:
         """
         return error.error_code == 429 or error.error_code >= 500
 
-    def load_delivery_state(self, event: PostReferenceEvent) -> tuple[int, str | None]:
-        """Read the channel cursor and destination within one worker-owned session."""
+    def load_delivery_state(self, event: PostReferenceEvent) -> tuple[SourceChannel | None, str | None]:
+        """Read the active channel and destination within one worker-owned session."""
         with self.db.create_session() as session:
-            channel = self.channels.get_active_channel(session, event.source_channel)
-            if event.message_id <= channel.last_committed_message_id:
-                return channel.last_committed_message_id, None
-            return channel.last_committed_message_id, self.settings.get_destination_chat_id(session)
+            channel = self.channels.find_active_channel(session, event.source_channel)
+            if channel is None or event.message_id <= channel.last_committed_message_id:
+                return channel, None
+            return channel, self.settings.get_destination_chat_id(session)
 
     def commit_event(self, event: PostReferenceEvent) -> None:
         """Advance the active channel cursor atomically without reading it again."""

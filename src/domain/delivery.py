@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-DeliveryAction = Literal["ack", "retry", "term"]
+DeliveryAction = Literal["ack", "retry", "skip", "term"]
 
 
 @dataclass(frozen=True)

@@ -62,5 +62,10 @@ class DispatcherRuntime:
             logger.error(f"Telegram rejected @{event.source_channel}/{event.message_id}: {result.error}")
             return True
 
+        # A batch holds one channel, so later posts of a removed channel are skipped too.
+        if result.action == "skip":
+            logger.info(f"Skipped @{event.source_channel}/{event.message_id}: channel is no longer active")
+            return False
+
         logger.warning(f"Delivery is not ready for @{event.source_channel}/{event.message_id}; waiting for rediscovery")
         return False

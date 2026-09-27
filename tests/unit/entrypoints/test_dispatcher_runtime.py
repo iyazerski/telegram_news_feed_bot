@@ -62,3 +62,18 @@ async def test_handle_message_stops_batch_after_retry() -> None:
     await runtime.handle_message(message)
 
     assert forwarding.forwarded_message_ids == [42]
+
+
+@pytest.mark.asyncio
+async def test_handle_message_stops_batch_after_removed_channel() -> None:
+    """
+    Verify posts of a removed channel stop the batch without raising.
+    """
+    forwarding = RecordingForwardingService([DeliveryResult(action="skip"), DeliveryResult(action="ack")])
+    runtime = DispatcherRuntime(AppConfigs(), forwarding)
+    batch = PostReferenceBatchEvent(posts=[create_event(42), create_event(43)])
+    message = Msg(Client(), data=batch.model_dump_json().encode())
+
+    await runtime.handle_message(message)
+
+    assert forwarding.forwarded_message_ids == [42]

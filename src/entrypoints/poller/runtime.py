@@ -28,8 +28,14 @@ class PollerRuntime:
 
         try:
             while True:
-                await self.poller.run_once(nats_client)
-                await asyncio.sleep(await asyncio.to_thread(self.load_poll_interval_seconds))
+                try:
+                    await self.poller.run_once(nats_client)
+                    interval_seconds = await asyncio.to_thread(self.load_poll_interval_seconds)
+                except Exception:
+                    # Keep the service alive through transient database or NATS failures.
+                    logger.exception("Poll cycle failed; retrying after the default interval")
+                    interval_seconds = self.configs.default_poll_interval_seconds
+                await asyncio.sleep(interval_seconds)
         finally:
             await nats_client.close()
             await self.poller.close()
