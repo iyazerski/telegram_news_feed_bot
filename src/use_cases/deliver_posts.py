@@ -55,7 +55,7 @@ class TelegramForwardingService:
         try:
             await self.deliver_post(destination, event)
         except TelegramApiError as exc:
-            if self.is_retryable_telegram_error(exc):
+            if exc.is_retryable:
                 return DeliveryResult(action="retry")
 
             await asyncio.to_thread(self.commit_event, event)
@@ -108,12 +108,6 @@ class TelegramForwardingService:
 
         for message in self.formatter.build_body_messages(event):
             await self.telegram.send_html_message(destination, message)
-
-    def is_retryable_telegram_error(self, error: TelegramApiError) -> bool:
-        """
-        Return whether Telegram rejected delivery for a transient reason.
-        """
-        return error.error_code == 429 or error.error_code >= 500
 
     def load_delivery_state(self, event: PostReferenceEvent) -> tuple[SourceChannel | None, str | None]:
         """Read the active channel and destination within one worker-owned session."""

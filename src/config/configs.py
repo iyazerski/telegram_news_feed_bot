@@ -30,6 +30,20 @@ class AppConfigs(BaseSettings):
     telegram_http_timeout_seconds: float = 20.0
     telegram_get_updates_timeout_seconds: int = 50
     telegram_get_updates_retry_seconds: int = 2
+    default_recap_interval_seconds: int = 21_600
+    recap_check_interval_seconds: int = 60
+    recap_retry_delay_seconds: int = 900
+    recap_story_count: int = 5
+    recap_history_size: int = 50
+    recap_history_retention_days: int = 30
+    recap_pi_executable: str = "pi"
+    # Empty uses Pi's default home. Production points it at a persistent volume that holds the ChatGPT sign-in.
+    recap_pi_home: str = ""
+    recap_pi_web_access_path: str = "/opt/pi-packages/npm/node_modules/pi-web-access"
+    recap_provider: str = "openai"
+    recap_timeout_seconds: float = 600.0
+    recap_model_list_timeout_seconds: float = 30.0
+    recap_model_refresh_interval_seconds: int = 3_600
 
 
 def load_configs() -> AppConfigs:

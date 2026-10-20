@@ -1,9 +1,11 @@
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from src.config.configs import AppConfigs
+from src.domain.recaps import RecapSettings
 from src.entrypoints.bot.mini_app.auth import validate_mini_app_init_data
 from src.entrypoints.bot.mini_app.models import (
     AddChannelRequest,
@@ -11,11 +13,14 @@ from src.entrypoints.bot.mini_app.models import (
     ChannelPageResponse,
     ChannelResponse,
     PollIntervalRequest,
+    RecapResponse,
+    RecapSettingsRequest,
     SettingsResponse,
     TelegramMiniAppSession,
 )
 from src.infrastructure.database.orm import Database
 from src.use_cases.manage_channels import ChannelService
+from src.use_cases.manage_recaps import RecapScheduleService
 from src.use_cases.manage_settings import SettingsService
 
 POLL_INTERVAL_SECONDS = {
@@ -24,6 +29,12 @@ POLL_INTERVAL_SECONDS = {
     "15m": 900,
     "1h": 3_600,
 }
+RECAP_INTERVAL_SECONDS = {
+    "3h": 10_800,
+    "6h": 21_600,
+    "12h": 43_200,
+    "24h": 86_400,
+}
 CHANNEL_PAGE_SIZE = 100
 
 
@@ -31,6 +42,21 @@ def create_mini_app_api_router(configs: AppConfigs, db: Database, settings: Sett
     """Create authenticated Mini App API routes for channel and settings management."""
     router = APIRouter(prefix="/api")
     channels = ChannelService()
+    recaps = RecapScheduleService(settings, configs.default_recap_interval_seconds)
+
+    def build_recap(database_session: Session) -> RecapResponse:
+        """Read the recap settings, schedule, and selectable models."""
+        recap = recaps.get_settings(database_session)
+        return RecapResponse(
+            topics=recap.topics,
+            language=recap.language,
+            interval_seconds=recap.interval_seconds,
+            enabled=recap.enabled,
+            model=recap.model,
+            thinking=recap.thinking,
+            next_run_at=recaps.get_next_run_at(database_session),
+            available_models=settings.get_recap_available_models(database_session),
+        )
 
     def build_channel_page(database_session: Session, after: str) -> ChannelPageResponse:
         """Read a bounded channel page and expose a cursor when more rows exist."""
@@ -66,6 +92,7 @@ def create_mini_app_api_router(configs: AppConfigs, db: Database, settings: Sett
                 ),
                 channels=page.channels,
                 next_cursor=page.next_cursor,
+                recap=build_recap(database_session),
             )
 
     @router.get("/channels", response_model=ChannelPageResponse)
@@ -116,5 +143,40 @@ def create_mini_app_api_router(configs: AppConfigs, db: Database, settings: Sett
             settings.set_poll_interval_seconds(database_session, seconds)
             database_session.commit()
         return SettingsResponse(poll_interval_seconds=seconds)
+
+    @router.put("/recap", response_model=RecapResponse)
+    def update_recap(
+        request: RecapSettingsRequest,
+        _session: Annotated[TelegramMiniAppSession, Depends(authenticate_admin)],
+    ) -> RecapResponse:
+        """Update the AI news recap settings and return them with the new schedule."""
+        recap = RecapSettings(
+            topics=list(dict.fromkeys(request.topics)),
+            language=request.language,
+            interval_seconds=RECAP_INTERVAL_SECONDS[request.interval],
+            enabled=request.enabled,
+            model=request.model,
+            thinking=request.thinking,
+        )
+        with db.create_session() as database_session:
+            try:
+                recaps.save_settings(database_session, recap, datetime.now(UTC))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            database_session.commit()
+            return build_recap(database_session)
+
+    @router.post("/recap/send-now", response_model=RecapResponse)
+    def send_recap_now(
+        _session: Annotated[TelegramMiniAppSession, Depends(authenticate_admin)],
+    ) -> RecapResponse:
+        """Schedule an AI news recap for the recapper's next check."""
+        with db.create_session() as database_session:
+            try:
+                recaps.request_now(database_session, datetime.now(UTC))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            database_session.commit()
+            return build_recap(database_session)
 
     return router

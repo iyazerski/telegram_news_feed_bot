@@ -84,6 +84,7 @@ quote-style = "double"
 paths = ["src", "tests"]
 ignore_decorators = ["@router.*", "@app.*"]
 ignore_names = [
+    "available_models",
     "created_at",
     "first_name",
     "handlers",

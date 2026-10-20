@@ -4,6 +4,8 @@ const state = {
   nextCursor: null,
   channelUsernames: new Set(),
   currentInterval: "",
+  recap: null,
+  recapInterval: "",
 };
 
 const elements = {
@@ -13,6 +15,15 @@ const elements = {
   addForm: document.querySelector("#add-channel-form"),
   channelInput: document.querySelector("#channel-input"),
   presetButtons: document.querySelectorAll("[data-interval]"),
+  recapForm: document.querySelector("#recap-form"),
+  recapEnabled: document.querySelector("#recap-enabled"),
+  recapTopics: document.querySelector("#recap-topics"),
+  recapLanguage: document.querySelector("#recap-language"),
+  recapModel: document.querySelector("#recap-model"),
+  recapThinking: document.querySelector("#recap-thinking"),
+  recapIntervalButtons: document.querySelectorAll("[data-recap-interval]"),
+  recapNext: document.querySelector("#recap-next"),
+  recapSendNow: document.querySelector("#recap-send-now"),
 };
 
 function boot() {
@@ -60,6 +71,44 @@ function bindEvents() {
       }, renderSettings);
     });
   });
+
+  elements.recapIntervalButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      state.recapInterval = button.dataset.recapInterval;
+      renderRecapIntervalButtons();
+    });
+  });
+  elements.recapForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await saveRecap(elements.recapEnabled.checked);
+  });
+  // The switch saves right away so turning recaps on or off never needs a second tap.
+  elements.recapEnabled.addEventListener("change", async () => {
+    const enabled = elements.recapEnabled.checked;
+    elements.recapEnabled.checked = state.recap.enabled;
+    await saveRecap(enabled);
+  });
+  elements.recapSendNow.addEventListener("click", async () => {
+    await mutate("/api/recap/send-now", { method: "POST" }, renderRecap);
+  });
+}
+
+async function saveRecap(enabled) {
+  const topics = elements.recapTopics.value
+    .split(/[\n,]/)
+    .map((topic) => topic.trim())
+    .filter(Boolean);
+  await mutate("/api/recap", {
+    method: "PUT",
+    body: JSON.stringify({
+      topics,
+      language: elements.recapLanguage.value.trim(),
+      interval: state.recapInterval,
+      enabled,
+      model: elements.recapModel.value,
+      thinking: elements.recapThinking.value,
+    }),
+  }, renderRecap);
 }
 
 async function loadState() {
@@ -124,6 +173,36 @@ async function loadChannels() {
 function renderState(data) {
   renderSettings(data);
   renderChannelPage(data);
+  renderRecap(data.recap);
+}
+
+function renderRecap(recap) {
+  state.recap = recap;
+  state.recapInterval = formatInterval(recap.interval_seconds);
+  elements.recapEnabled.checked = recap.enabled;
+  elements.recapTopics.value = recap.topics.join("\n");
+  elements.recapLanguage.value = recap.language;
+  elements.recapThinking.value = recap.thinking;
+
+  // Keep the saved model selectable even before the recapper has listed the account's models.
+  const models = recap.available_models.includes(recap.model)
+    ? recap.available_models
+    : [recap.model, ...recap.available_models];
+  elements.recapModel.replaceChildren(...models.map((model) => new Option(model, model)));
+  elements.recapModel.value = recap.model;
+
+  elements.recapNext.textContent = recap.next_run_at
+    ? `Next recap: ${new Date(recap.next_run_at).toLocaleString()}`
+    : "AI recaps are off.";
+  renderRecapIntervalButtons();
+}
+
+function renderRecapIntervalButtons() {
+  elements.recapIntervalButtons.forEach((button) => {
+    const isSelected = button.dataset.recapInterval === state.recapInterval;
+    button.classList.toggle("is-selected", isSelected);
+    button.setAttribute("aria-pressed", String(isSelected));
+  });
 }
 
 function renderSettings(data) {
@@ -212,7 +291,7 @@ function formatInterval(seconds) {
 }
 
 function setBusy(isBusy) {
-  document.querySelectorAll("button, input").forEach((element) => {
+  document.querySelectorAll("button, input, select, textarea").forEach((element) => {
     element.disabled = isBusy;
   });
 }

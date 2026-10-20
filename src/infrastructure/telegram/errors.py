@@ -8,6 +8,13 @@ class TelegramApiError(Exception):
         self.description = description
         self.error_code = error_code
 
+    @property
+    def is_retryable(self) -> bool:
+        """
+        Return whether Telegram rejected the request for a transient reason.
+        """
+        return self.error_code == 429 or self.error_code >= 500
+
 
 class TelegramWebPreviewUnavailableError(Exception):
     def __init__(self, username: str) -> None:

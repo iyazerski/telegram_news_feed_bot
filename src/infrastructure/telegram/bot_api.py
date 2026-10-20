@@ -72,13 +72,18 @@ class TelegramBotApi:
             {"chat_id": chat_id, "text": text, "disable_web_page_preview": False},
         )
 
-    async def send_html_message(self, chat_id: int | str, text: str) -> None:
+    async def send_html_message(self, chat_id: int | str, text: str, *, disable_web_page_preview: bool = False) -> None:
         """
         Send an HTML text message to a Telegram chat.
         """
         await self._post(
             "sendMessage",
-            {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": False},
+            {
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": disable_web_page_preview,
+            },
         )
 
     async def send_photo(self, chat_id: int | str, photo: TelegramUpload, caption: str) -> None:

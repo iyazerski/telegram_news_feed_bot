@@ -174,3 +174,81 @@ spec:
             runAsGroup: 10001
             runAsNonRoot: true
             runAsUser: 10001
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: telegram-news-pi-home-pvc
+  labels:
+    app: telegram-news
+    component: recapper
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telegram-news-recapper
+  labels:
+    app: telegram-news
+    component: recapper
+spec:
+  replicas: 1
+  # The Pi home volume is ReadWriteOnce, and two recappers could send the same recap twice.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: telegram-news
+      component: recapper
+  template:
+    metadata:
+      labels:
+        app: telegram-news
+        component: recapper
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: recapper
+          image: __RECAPPER_IMAGE__
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: telegram-news-config
+            - secretRef:
+                name: telegram-news-database-secrets
+            - secretRef:
+                name: telegram-news-bot-secrets
+          volumeMounts:
+            - name: pi-home
+              mountPath: /var/lib/telegram-news/pi
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 10001
+            runAsNonRoot: true
+            runAsUser: 10001
+      volumes:
+        - name: pi-home
+          persistentVolumeClaim:
+            claimName: telegram-news-pi-home-pvc

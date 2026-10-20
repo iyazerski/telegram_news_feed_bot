@@ -23,10 +23,21 @@ jobs:
       - name: Update lockfile
         run: uv lock --upgrade
 
+      - name: Update Pi-Bolt and web access
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$(gh release view --repo opensec-git/Pi-Bolt --json tagName --jq .tagName)"
+          web_access="$(curl -fsSL https://registry.npmjs.org/pi-web-access/latest | jq -r .version)"
+          sed -i \
+            -e "s/^ARG PIBOLT_VERSION=.*/ARG PIBOLT_VERSION=${tag#bolt-v}/" \
+            -e "s/^ARG PI_WEB_ACCESS_VERSION=.*/ARG PI_WEB_ACCESS_VERSION=${web_access}/" \
+            docker/recapper/Dockerfile
+
       - name: Check for updates
         id: check
         run: |
-          if git diff --quiet uv.lock; then
+          if git diff --quiet uv.lock docker/recapper/Dockerfile; then
             echo "No dependency updates found."
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
           else
@@ -46,7 +57,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add uv.lock
-          git commit -m "chore: update python dependencies"
+          git add uv.lock docker/recapper/Dockerfile
+          git commit -m "chore: update dependencies"
           git push
           gh workflow run ci.yaml --ref main

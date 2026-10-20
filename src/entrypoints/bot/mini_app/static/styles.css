@@ -30,7 +30,9 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
@@ -133,7 +135,9 @@ h2 {
   gap: 8px;
 }
 
-input {
+input,
+select,
+textarea {
   width: 100%;
   min-height: 42px;
   border: 1px solid var(--app-border);
@@ -144,7 +148,14 @@ input {
   outline: 0;
 }
 
-input:focus {
+textarea {
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
   border-color: var(--app-link);
 }
 
@@ -210,6 +221,48 @@ input:focus {
   color: var(--app-button-text);
 }
 
+.recap-form {
+  display: grid;
+  gap: 8px;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--app-muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.switch input {
+  width: 20px;
+  min-height: 20px;
+}
+
+.hint {
+  color: var(--app-muted);
+  font-size: 13px;
+}
+
+.action-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+button.secondary {
+  background: color-mix(in srgb, var(--app-button), transparent 88%);
+  color: var(--app-button);
+}
+
 .message {
   min-height: 22px;
   margin-top: 12px;
@@ -223,7 +276,8 @@ input:focus {
 }
 
 @media (max-width: 480px) {
-  .input-action {
+  .input-action,
+  .field-grid {
     grid-template-columns: 1fr;
   }
 }

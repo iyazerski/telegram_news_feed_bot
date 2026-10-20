@@ -26,6 +26,17 @@ class AppSetting(Base):
     )
 
 
+class SentRecapStory(Base):
+    __tablename__ = "sent_recap_story"
+    # Recaps read the newest stories and prune the oldest ones, both by send time.
+    __table_args__ = (Index("ix_sent_recap_story_sent_at", "sent_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    url: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(Text)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class SourceChannel(Base):
     __tablename__ = "source_channel"
     __table_args__ = (
