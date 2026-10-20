@@ -58,6 +58,8 @@ USER appuser
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
+# Cap glibc malloc arenas, which otherwise grow per thread (asyncio.to_thread workers) and inflate idle memory.
+ENV MALLOC_ARENA_MAX=2
 ENV HOME=/var/lib/telegram-news
 ENV TELEGRAM_NEWS_RECAP_PI_HOME=/var/lib/telegram-news/pi
 

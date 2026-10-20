@@ -14,7 +14,6 @@ license = { text = "Proprietary" }
 version = "0.1.0"
 dependencies = [
     "alembic>=1.18.4",
-    "beautifulsoup4>=4.14.3",
     "fastapi>=0.138.0",
     "httpx>=0.28.1",
     "loguru>=0.7.3",
@@ -22,6 +21,7 @@ dependencies = [
     "psycopg[binary]>=3.3.3",
     "pydantic>=2.13.3",
     "pydantic-settings>=2.13.1",
+    "selectolax>=1.0.1",
     "sqlalchemy>=2.0.48",
     "uvicorn>=0.49.0",
 ]

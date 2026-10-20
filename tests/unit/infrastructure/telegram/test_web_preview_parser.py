@@ -28,7 +28,8 @@ def telegram_preview_html() -> str:
       <div class="tgme_widget_message" data-post="other/99"></div>
       <div class="tgme_widget_message" data-post="example/14">
         <a class="tgme_widget_message_owner_name" href="https://t.me/example"><span>Example News</span></a>
-        <div class="tgme_widget_message_text js-message_text">Second</div>
+        <div class="tgme_widget_message_text js-message_text">Second <pre><b>a</b>
+  <b>b</b></pre></div>
       </div>
       <div class="tgme_widget_message" data-post="example/16">
         <a class="tgme_widget_message_owner_name" href="https://t.me/example"><span>Example News</span></a>
@@ -53,6 +54,7 @@ def test_parse_extracts_matching_channel_message_metadata(telegram_preview_html:
         "https://cdn.example/video.mp4",
     ]
     assert posts[0].text_html == 'Hello <b>bold</b>\n\n<a href="https://example.com">link</a>\n👉'
+    assert posts[1].text_html == "Second <pre><b>a</b>\n  <b>b</b></pre>"
     assert posts[2].text_html == ""
     assert posts[2].media_urls == []
     assert posts[2].media_unavailable is True

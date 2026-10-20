@@ -1,7 +1,7 @@
 import html
 import re
 
-from bs4 import BeautifulSoup, NavigableString, Tag
+from selectolax.lexbor import LexborHTMLParser, LexborNode
 
 from src.domain.posts import DiscoveredTelegramPost
 
@@ -13,14 +13,14 @@ class TelegramWebPreviewParser:
         """
         Extract structured Telegram post metadata from a public channel web preview page.
         """
-        soup = BeautifulSoup(html_text, "html.parser")
+        tree = LexborHTMLParser(html_text)
         posts: list[DiscoveredTelegramPost] = []
 
         # Telegram exposes public preview message IDs in data-post attributes.
-        for message_node in soup.select("[data-post]"):
-            data_post = message_node["data-post"]
-            if not isinstance(data_post, str):
-                raise ValueError("Telegram data-post attribute must be a string")
+        for message_node in tree.css("[data-post]"):
+            data_post = message_node.attributes.get("data-post")
+            if data_post is None:
+                raise ValueError("Telegram data-post attribute is missing")
 
             channel, raw_message_id = self._parse_data_post(data_post)
             if channel == source_channel:
@@ -49,95 +49,90 @@ class TelegramWebPreviewParser:
         channel, raw_message_id = data_post.split("/", maxsplit=1)
         return channel.lower(), raw_message_id
 
-    def _extract_channel_display_name(self, message_node: Tag) -> str:
+    def _extract_channel_display_name(self, message_node: LexborNode) -> str:
         """
         Extract the Telegram channel display name from a preview message node.
         """
-        owner_node = message_node.select_one(".tgme_widget_message_owner_name")
+        owner_node = message_node.css_first(".tgme_widget_message_owner_name")
         if owner_node is None:
             raise ValueError("Telegram preview message owner name is missing")
 
-        return owner_node.get_text(strip=True)
+        return owner_node.text(strip=True)
 
-    def _extract_text_html(self, message_node: Tag) -> str:
+    def _extract_text_html(self, message_node: LexborNode) -> str:
         """
         Extract Telegram-compatible HTML text from a preview message node.
         """
-        text_node = message_node.select_one(".js-message_text")
+        text_node = message_node.css_first(".js-message_text")
         if text_node is None:
             return ""
 
         rendered = self._render_children(text_node)
         return rendered.strip()
 
-    def _render_children(self, node: Tag) -> str:
+    def _render_children(self, node: LexborNode, in_pre: bool = False) -> str:
         """
         Render child nodes into the subset of HTML accepted by Telegram Bot API.
         """
-        return "".join(self._render_child(child) for child in node.children)
+        return "".join(self._render_node(child, in_pre) for child in node.iter(include_text=True))
 
-    def _render_child(self, node: object) -> str:
+    def _render_node(self, node: LexborNode, in_pre: bool) -> str:
         """
-        Render a supported BeautifulSoup child node.
+        Render one text or element node into Telegram-compatible HTML.
         """
-        if isinstance(node, Tag | NavigableString):
-            return self._render_node(node)
-        return ""
+        if node.is_text_node:
+            text = node.text_content or ""
+            # Collapse markup indentation between tags so it does not become visible text, except inside <pre>.
+            if not in_pre and text.isspace():
+                return "\n" if "\n" in text else " "
+            return html.escape(text, quote=False)
 
-    def _render_node(self, node: Tag | NavigableString) -> str:
-        """
-        Render one BeautifulSoup node into Telegram-compatible HTML.
-        """
-        if isinstance(node, NavigableString):
-            return html.escape(str(node), quote=False)
-
-        if node.name == "br":
+        name = node.tag
+        if name == "br":
             return "\n"
 
         # Telegram renders emoji as styled <i> tags whose text content is the real emoji.
-        class_names = node.get_attribute_list("class")
-        if node.name == "i" and "emoji" in class_names:
-            return html.escape(node.get_text(), quote=False)
+        if name == "i" and "emoji" in self._class_names(node):
+            return html.escape(node.text(), quote=False)
 
-        inner_html = self._render_children(node)
+        inner_html = self._render_children(node, in_pre or name == "pre")
 
-        if node.name == "a":
-            href = node.get("href")
-            if not isinstance(href, str):
+        if name == "a":
+            href = node.attributes.get("href")
+            if href is None:
                 return inner_html
             return f'<a href="{html.escape(href, quote=True)}">{inner_html}</a>'
 
-        if node.name in {"b", "strong"}:
+        if name in {"b", "strong"}:
             return f"<b>{inner_html}</b>"
 
-        if node.name in {"i", "em"}:
+        if name in {"i", "em"}:
             return f"<i>{inner_html}</i>"
 
-        if node.name == "u":
+        if name == "u":
             return f"<u>{inner_html}</u>"
 
-        if node.name in {"s", "strike", "del"}:
+        if name in {"s", "strike", "del"}:
             return f"<s>{inner_html}</s>"
 
-        if node.name == "code":
+        if name == "code":
             return f"<code>{inner_html}</code>"
 
-        if node.name == "pre":
+        if name == "pre":
             return f"<pre>{inner_html}</pre>"
 
         return inner_html
 
-    def _extract_media_urls(self, message_node: Tag) -> tuple[list[str], bool]:
+    def _extract_media_urls(self, message_node: LexborNode) -> tuple[list[str], bool]:
         """
         Extract media URLs and identify media that Telegram did not expose.
         """
         media_urls: list[str] = []
         media_unavailable = False
-        for media_node in message_node.select(".tgme_widget_message_photo_wrap, .tgme_widget_message_video_wrap"):
-            class_names = media_node.get_attribute_list("class")
-            if "tgme_widget_message_photo_wrap" in class_names:
-                style = media_node.get("style")
-                if not isinstance(style, str):
+        for media_node in message_node.css(".tgme_widget_message_photo_wrap, .tgme_widget_message_video_wrap"):
+            if "tgme_widget_message_photo_wrap" in self._class_names(media_node):
+                style = media_node.attributes.get("style")
+                if style is None:
                     media_unavailable = True
                     continue
 
@@ -149,21 +144,28 @@ class TelegramWebPreviewParser:
                 media_urls.append(self._normalize_media_url(match.group("url")))
                 continue
 
-            video_node = media_node.select_one("video")
+            video_node = media_node.css_first("video")
             if video_node is None:
                 media_unavailable = True
                 continue
 
-            media_url = video_node.get("src")
-            if isinstance(media_url, str):
+            media_url = video_node.attributes.get("src")
+            if media_url is not None:
                 media_urls.append(self._normalize_media_url(media_url))
             else:
                 media_unavailable = True
 
-        if not media_urls and message_node.select_one(".message_media_not_supported_wrap") is not None:
+        if not media_urls and message_node.css_first(".message_media_not_supported_wrap") is not None:
             media_unavailable = True
 
         return media_urls, media_unavailable
+
+    def _class_names(self, node: LexborNode) -> list[str]:
+        """
+        Return the whitespace-separated class names of an element node.
+        """
+        class_attribute = node.attributes.get("class")
+        return class_attribute.split() if class_attribute else []
 
     def _normalize_media_url(self, media_url: str) -> str:
         """

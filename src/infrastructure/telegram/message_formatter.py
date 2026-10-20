@@ -1,7 +1,7 @@
 import html
 from typing import Protocol
 
-from bs4 import BeautifulSoup
+from selectolax.lexbor import LexborHTMLParser
 
 PHOTO_CAPTION_LIMIT = 1024
 TEXT_MESSAGE_LIMIT = 4096
@@ -95,7 +95,7 @@ class TelegramMessageFormatter:
         """
         Convert supported Telegram HTML into plain text for safe length limiting.
         """
-        return BeautifulSoup(text_html, "html.parser").get_text().strip()
+        return LexborHTMLParser(text_html).text().strip()
 
     def split_plain_text(self, text: str, limit: int) -> list[str]:
         """

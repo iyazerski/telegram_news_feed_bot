@@ -107,8 +107,8 @@ spec:
                 name: telegram-news-bot-secrets
           resources:
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 25m
+              memory: 96Mi
             limits:
               cpu: 500m
               memory: 512Mi
@@ -161,8 +161,8 @@ spec:
                 name: telegram-news-bot-secrets
           resources:
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 25m
+              memory: 96Mi
             limits:
               cpu: 500m
               memory: 512Mi

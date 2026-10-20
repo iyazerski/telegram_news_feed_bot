@@ -25,5 +25,7 @@ USER appuser
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
+# Cap glibc malloc arenas, which otherwise grow per thread (asyncio.to_thread workers) and inflate idle memory.
+ENV MALLOC_ARENA_MAX=2
 
 CMD ["python", "-m", "src.entrypoints.poller.main"]

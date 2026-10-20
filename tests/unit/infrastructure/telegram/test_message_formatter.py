@@ -30,3 +30,14 @@ def test_build_text_messages_preserves_all_text_when_message_exceeds_limit() -> 
     assert "".join(plain_messages) == f"Example News\n\n{body}"
     assert all(len(message) <= 4096 for message in plain_messages)
     assert "…" not in "".join(plain_messages)
+
+
+def test_html_to_plain_text_keeps_blank_lines_between_tags() -> None:
+    """
+    Verify plain text keeps every newline Telegram renders, so length limits are not undercounted.
+    """
+    plain_text = TelegramMessageFormatter().html_to_plain_text(
+        '<i>a &amp; b</i>\n\n<a href="https://example.com">c</a>'
+    )
+
+    assert plain_text == "a & b\n\nc"
