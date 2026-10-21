@@ -20,7 +20,7 @@ ARG PIBOLT_VERSION=0.9.6
 # Empty lets the installer pick the build for the build machine's CPU: x64 needs AVX2, so set x64-baseline for older
 # x86-64 servers.
 ARG PIBOLT_VARIANT=
-ARG PI_WEB_ACCESS_VERSION=0.43.0
+ARG PI_WEB_ACCESS_VERSION=0.44.0
 
 # OpenSSL lets the installer verify the release signature, and xz picks the smaller archive.
 RUN apt-get update \
