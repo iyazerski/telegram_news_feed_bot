@@ -241,6 +241,10 @@ jobs:
           sed -e "s|__MIGRATION_IMAGE__|${MIGRATION_IMAGE}|g" k8s/migration-job.yaml | kubectl -n "${NAMESPACE}" apply -f -
           kubectl -n "${NAMESPACE}" wait --for=condition=complete job/telegram-news-migrate --timeout=300s
 
+      - name: Record running release
+        # Remember the live revisions, so a failed deploy or smoke check can restore them.
+        run: scripts/release_guard.sh record deployment/telegram-news-bot deployment/telegram-news-poller deployment/telegram-news-dispatcher deployment/telegram-news-recapper
+
       - name: Deploy application services
         run: |
           sed \
@@ -257,3 +261,13 @@ jobs:
           kubectl -n "${NAMESPACE}" rollout status deployment/telegram-news-poller --timeout=300s
           kubectl -n "${NAMESPACE}" rollout status deployment/telegram-news-dispatcher --timeout=300s
           kubectl -n "${NAMESPACE}" rollout status deployment/telegram-news-recapper --timeout=300s
+
+      - name: Smoke check public site
+        run: |
+          scripts/release_guard.sh smoke \
+            200 "https://${PUBLIC_HOST}/app/" \
+            200 "https://${PUBLIC_HOST}/healthz"
+
+      - name: Restore previous release
+        if: failure()
+        run: scripts/release_guard.sh restore
