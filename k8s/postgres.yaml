@@ -89,11 +89,11 @@ spec:
             periodSeconds: 20
           resources:
             requests:
-              cpu: 25m
+              cpu: 10m
               memory: 128Mi
             limits:
               cpu: 1000m
-              memory: 1Gi
+              memory: 256Mi
       volumes:
         - name: postgres-storage
           persistentVolumeClaim:

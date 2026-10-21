@@ -54,11 +54,11 @@ spec:
                 name: telegram-news-bot-secrets
           resources:
             requests:
-              cpu: 25m
+              cpu: 15m
               memory: 96Mi
             limits:
               cpu: 250m
-              memory: 256Mi
+              memory: 192Mi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -109,11 +109,11 @@ spec:
                 name: telegram-news-bot-secrets
           resources:
             requests:
-              cpu: 25m
+              cpu: 10m
               memory: 128Mi
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 256Mi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -164,11 +164,11 @@ spec:
                 name: telegram-news-bot-secrets
           resources:
             requests:
-              cpu: 25m
-              memory: 128Mi
+              cpu: 10m
+              memory: 160Mi
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 320Mi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -240,11 +240,11 @@ spec:
               mountPath: /var/lib/telegram-news/pi
           resources:
             requests:
-              cpu: 50m
-              memory: 192Mi
+              cpu: 25m
+              memory: 320Mi
             limits:
               cpu: 1000m
-              memory: 1Gi
+              memory: 640Mi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
