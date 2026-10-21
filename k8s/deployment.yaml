@@ -3,6 +3,7 @@ kind: Deployment
 metadata:
   name: telegram-news-bot
   labels:
+    app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news
     component: bot
 spec:
@@ -72,6 +73,7 @@ kind: Deployment
 metadata:
   name: telegram-news-poller
   labels:
+    app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news
     component: poller
 spec:
@@ -126,6 +128,7 @@ kind: Deployment
 metadata:
   name: telegram-news-dispatcher
   labels:
+    app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news
     component: dispatcher
 spec:
@@ -180,6 +183,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: telegram-news-pi-home-pvc
   labels:
+    app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news
     component: recapper
 spec:
@@ -194,6 +198,7 @@ kind: Deployment
 metadata:
   name: telegram-news-recapper
   labels:
+    app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news
     component: recapper
 spec:

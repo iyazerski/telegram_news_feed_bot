@@ -3,6 +3,7 @@ kind: Service
 metadata:
   name: telegram-news-bot
   labels:
+    app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news
     component: bot
 spec:

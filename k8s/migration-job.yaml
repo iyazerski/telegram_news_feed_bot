@@ -3,6 +3,7 @@ kind: Job
 metadata:
   name: telegram-news-migrate
   labels:
+    app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news
 spec:
   backoffLimit: 3

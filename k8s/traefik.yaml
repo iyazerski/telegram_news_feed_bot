@@ -3,6 +3,7 @@ kind: Middleware
 metadata:
   name: telegram-news-https-redirect
   labels:
+    app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news
 spec:
   redirectScheme:
@@ -14,6 +15,7 @@ kind: Middleware
 metadata:
   name: telegram-news-security-headers
   labels:
+    app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news
 spec:
   headers:

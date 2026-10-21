@@ -3,6 +3,7 @@ kind: Certificate
 metadata:
   name: telegram-news-tls
   labels:
+    app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news
 spec:
   secretName: telegram-news-tls

@@ -3,6 +3,7 @@ kind: Service
 metadata:
   name: telegram-news-postgres
   labels:
+    app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news-postgres
 spec:
   type: ClusterIP
@@ -18,6 +19,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: telegram-news-postgres-pvc
   labels:
+    app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news-postgres
 spec:
   accessModes:
@@ -31,6 +33,7 @@ kind: Deployment
 metadata:
   name: telegram-news-postgres
   labels:
+    app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news-postgres
 spec:
   replicas: 1

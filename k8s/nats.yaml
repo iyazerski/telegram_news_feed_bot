@@ -3,6 +3,7 @@ kind: Service
 metadata:
   name: telegram-news-nats
   labels:
+    app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news-nats
 spec:
   type: ClusterIP
@@ -18,6 +19,7 @@ kind: Deployment
 metadata:
   name: telegram-news-nats
   labels:
+    app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news-nats
 spec:
   replicas: 1

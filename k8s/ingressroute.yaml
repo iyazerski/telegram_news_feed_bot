@@ -3,6 +3,7 @@ kind: IngressRoute
 metadata:
   name: telegram-news-web
   labels:
+    app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news
 spec:
   entryPoints:
@@ -21,6 +22,7 @@ kind: IngressRoute
 metadata:
   name: telegram-news-websecure
   labels:
+    app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news
 spec:
   entryPoints:
