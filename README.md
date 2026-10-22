@@ -38,8 +38,7 @@ Web search needs a Tavily API key. CD reads it from the `TAVILY_API_KEY` GitHub 
 ## Local Development
 
 ```bash
-uv sync --group dev
-uv run alembic upgrade head
+cargo run -p migrate
 cargo run -p bot
 cargo run -p feed
 cargo run -p recapper -- login   # once, to sign in to ChatGPT
@@ -52,4 +51,15 @@ The bot defaults to long polling locally with `TELEGRAM_NEWS_BOT_UPDATE_MODE=pol
 
 ## Code Layout
 
-The services form one Cargo workspace. `bot/src`, `feed/src`, and `recapper/src` use the same layers: `domain`, `infrastructure`, `use_cases`, and `entrypoints`, with unit tests next to the code. `common/` holds what they share: settings loading, logging, shutdown, the database pool, the stored app settings, and the Telegram Bot API client. Alembic in the small Python project (`src/` and `db_migrations/`) owns the database schema that all services share.
+The services form one Cargo workspace. `bot/src`, `feed/src`, and `recapper/src` use the same layers: `domain`, `infrastructure`, `use_cases`, and `entrypoints`, with unit tests next to the code. `common/` holds what they share: settings loading, logging, shutdown, the database pool, the stored app settings, and the Telegram Bot API client. `migrations/` holds the SQL migrations of the database schema that all services share. `migrate/` builds them into the binary that the deploy runs as a Kubernetes job before it updates the services.
+
+## Database Migrations
+
+Create a migration with [sqlx-cli](https://crates.io/crates/sqlx-cli), then write its SQL:
+
+```bash
+cargo install sqlx-cli --no-default-features --features postgres,rustls
+sqlx migrate add <description>
+```
+
+Apply migrations locally with `cargo run -p migrate`. Migrations are forward-only and each runs in a transaction.

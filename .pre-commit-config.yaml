@@ -8,37 +8,13 @@ repos:
 
   - repo: local
     hooks:
-      - id: ruff-check
-        name: ruff check
-        entry: uv run ruff check --fix
-        require_serial: true
-        language: unsupported
-        pass_filenames: true
-        types: [python]
-
-      - id: ruff-format
-        name: ruff format
-        entry: uv run ruff format
-        require_serial: true
-        language: unsupported
-        pass_filenames: true
-        types: [python]
-
-      - id: ty
-        name: ty check
-        entry: uv run ty check
-        require_serial: true
-        language: unsupported
-        pass_filenames: true
-        types: [python]
-
       - id: cargo-fmt
         name: cargo fmt
         entry: cargo fmt --all
         require_serial: true
         language: unsupported
         pass_filenames: false
-        files: &rust-files ^(Cargo\.(toml|lock)|rustfmt\.toml|bot/|common/|feed/|recapper/)
+        files: &rust-files ^(Cargo\.(toml|lock)|rustfmt\.toml|bot/|common/|feed/|migrate/|migrations/|recapper/)
 
       - id: cargo-clippy
         name: cargo clippy

@@ -20,9 +20,6 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v10.3.2
 
-      - name: Update lockfile
-        run: uv lock --upgrade
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -34,7 +31,7 @@ jobs:
       - name: Check for updates
         id: check
         run: |
-          if git diff --quiet uv.lock Cargo.lock; then
+          if git diff --quiet Cargo.lock; then
             echo "No dependency updates found."
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
           else
@@ -43,9 +40,7 @@ jobs:
 
       - name: Verify with pre-commit
         if: steps.check.outputs.has_changes == 'true'
-        run: |
-          uv sync --locked --group dev
-          uv run pre-commit run --all-files
+        run: uvx pre-commit run --all-files
 
       - name: Commit and push changes
         if: steps.check.outputs.has_changes == 'true'
@@ -54,7 +49,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add uv.lock Cargo.lock
+          git add Cargo.lock
           git commit -m "chore: update dependencies"
           git push
           gh workflow run ci.yaml --ref main

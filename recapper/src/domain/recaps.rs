@@ -26,7 +26,7 @@ pub fn normalize_story_url(raw: &str) -> String {
     normalized.push_str(url.path().trim_end_matches('/'));
     let query: Vec<(String, String)> = url
         .query_pairs()
-        // Blank values carry no meaning, as with Python's parse_qsl defaults.
+        // Blank values carry no meaning, so they are dropped.
         .filter(|(key, value)| !value.is_empty() && !is_tracking_key(key))
         .map(|(key, value)| (key.into_owned(), value.into_owned()))
         .collect();

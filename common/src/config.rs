@@ -10,7 +10,7 @@ pub fn load<T: DeserializeOwned>() -> Result<T> {
 
 /// Return the local database URL every service uses by default.
 pub fn default_database_url() -> String {
-    "postgresql+psycopg:///telegram_news_feed_bot".to_owned()
+    "postgresql:///telegram_news_feed_bot".to_owned()
 }
 
 /// Return the log level every service uses by default.

@@ -151,16 +151,9 @@ jobs:
 
       - name: Build database URL
         run: |
-          TELEGRAM_NEWS_DATABASE_URL="$(python3 - <<'PY'
-          from os import environ
-          from urllib.parse import quote
-
-          user = quote(environ["POSTGRES_USER"], safe="")
-          password = quote(environ["POSTGRES_PASSWORD"], safe="")
-          database = quote(environ["POSTGRES_DB"], safe="")
-          print(f"postgresql+psycopg://{user}:{password}@telegram-news-postgres:5432/{database}")
-          PY
-          )"
+          TELEGRAM_NEWS_DATABASE_URL="$(jq -rn \
+            --arg user "${POSTGRES_USER}" --arg password "${POSTGRES_PASSWORD}" --arg database "${POSTGRES_DB}" \
+            '"postgresql://\($user | @uri):\($password | @uri)@telegram-news-postgres:5432/\($database | @uri)"')"
           echo "::add-mask::${TELEGRAM_NEWS_DATABASE_URL}"
           echo "TELEGRAM_NEWS_DATABASE_URL=${TELEGRAM_NEWS_DATABASE_URL}" >> "$GITHUB_ENV"
 

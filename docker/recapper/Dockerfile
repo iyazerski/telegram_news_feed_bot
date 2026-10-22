@@ -7,6 +7,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY bot bot
 COPY common common
 COPY feed feed
+COPY migrate migrate
 COPY recapper recapper
 
 RUN cargo build --release --locked -p recapper

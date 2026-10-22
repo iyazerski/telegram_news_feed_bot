@@ -26,5 +26,3 @@ spec:
                 name: telegram-news-config
             - secretRef:
                 name: telegram-news-database-secrets
-            - secretRef:
-                name: telegram-news-bot-secrets
