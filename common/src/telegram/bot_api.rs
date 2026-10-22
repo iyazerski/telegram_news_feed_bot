@@ -3,6 +3,7 @@ use std::time::Duration;
 use reqwest::RequestBuilder;
 use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
+use serde::de::{DeserializeOwned, IgnoredAny};
 use serde_json::{Value, json};
 
 // reqwest limits whole requests, uploads included, so media of up to 50 MB gets more time than a text message.
@@ -45,26 +46,81 @@ impl TelegramUpload {
     }
 }
 
+/// One incoming bot update. The bot asks Telegram only for messages.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Update {
+    pub update_id: i64,
+    pub message: Option<Message>,
+}
+
+/// A message sent to the bot.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Message {
+    pub chat: Chat,
+    /// The sender, which messages in channels do not have.
+    pub from: Option<User>,
+    pub text: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Chat {
+    pub id: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct User {
+    pub id: i64,
+}
+
 #[derive(Deserialize)]
-struct Envelope {
+struct Envelope<T> {
     ok: bool,
+    result: Option<T>,
     description: Option<String>,
     error_code: Option<u16>,
 }
 
-/// Telegram Bot API client for one bot token.
+/// Telegram Bot API client for one bot token. Clones share one connection pool.
+#[derive(Clone)]
 pub struct TelegramBotApi {
     base_url: String,
     http: reqwest::Client,
+    timeout: Duration,
 }
 
 impl TelegramBotApi {
-    /// Create a client whose requests give up after `timeout`, or a longer fixed time for media uploads.
+    /// Create a client whose requests give up after `timeout`, or later for long polls and media uploads.
     pub fn new(token: &str, timeout: Duration) -> anyhow::Result<Self> {
         Ok(Self {
             base_url: format!("https://api.telegram.org/bot{token}"),
             http: reqwest::Client::builder().timeout(timeout).build()?,
+            timeout,
         })
+    }
+
+    /// Wait up to `wait` for message updates from `offset` on, which also confirms the updates before it.
+    pub async fn get_updates(&self, offset: i64, wait: Duration) -> Result<Vec<Update>, TelegramError> {
+        let method = "getUpdates";
+        let payload = json!({"offset": offset, "timeout": wait.as_secs(), "allowed_updates": ["message"]});
+        // Telegram holds a long poll open for `wait`, so the request may take that long before its own timeout.
+        self.send(method, self.request(method).timeout(wait + self.timeout).json(&payload)).await
+    }
+
+    /// Have Telegram deliver message updates to `url`, sending `secret_token` in each request's header.
+    pub async fn set_webhook(&self, url: &str, secret_token: &str) -> Result<(), TelegramError> {
+        let payload = json!({"url": url, "secret_token": secret_token, "allowed_updates": ["message"]});
+        self.post("setWebhook", payload).await
+    }
+
+    /// Stop webhook delivery, keeping pending updates, so that long polling can take over.
+    pub async fn delete_webhook(&self) -> Result<(), TelegramError> {
+        self.post("deleteWebhook", json!({"drop_pending_updates": false})).await
+    }
+
+    /// Make the bot's default menu button open the Mini App at `web_app_url`.
+    pub async fn set_chat_menu_button(&self, text: &str, web_app_url: &str) -> Result<(), TelegramError> {
+        let payload = json!({"menu_button": {"type": "web_app", "text": text, "web_app": {"url": web_app_url}}});
+        self.post("setChatMenuButton", payload).await
     }
 
     /// Send a plain text message to a Telegram chat.
@@ -120,7 +176,7 @@ impl TelegramBotApi {
             form = form.part(upload.field_name.clone(), upload_part(method, upload)?);
         }
         let form = form.text("media", Value::Array(items).to_string());
-        self.send(method, self.request(method).timeout(MEDIA_UPLOAD_TIMEOUT).multipart(form)).await
+        self.send_ignoring_result(method, self.request(method).timeout(MEDIA_UPLOAD_TIMEOUT).multipart(form)).await
     }
 
     /// Upload one file in `field` of a captioned media method.
@@ -137,30 +193,34 @@ impl TelegramBotApi {
             .text("caption", caption.to_owned())
             .text("parse_mode", "HTML")
             .part(field, upload_part(method, upload)?);
-        self.send(method, self.request(method).timeout(MEDIA_UPLOAD_TIMEOUT).multipart(form)).await
+        self.send_ignoring_result(method, self.request(method).timeout(MEDIA_UPLOAD_TIMEOUT).multipart(form)).await
     }
 
     /// Call a Bot API method with a JSON payload.
     async fn post(&self, method: &str, payload: Value) -> Result<(), TelegramError> {
-        self.send(method, self.request(method).json(&payload)).await
+        self.send_ignoring_result(method, self.request(method).json(&payload)).await
+    }
+
+    async fn send_ignoring_result(&self, method: &str, request: RequestBuilder) -> Result<(), TelegramError> {
+        self.send::<IgnoredAny>(method, request).await.map(|_| ())
     }
 
     fn request(&self, method: &str) -> RequestBuilder {
         self.http.post(format!("{}/{method}", self.base_url))
     }
 
-    /// Send a Bot API request and turn a refused or malformed answer into an error.
-    async fn send(&self, method: &str, request: RequestBuilder) -> Result<(), TelegramError> {
+    /// Send a Bot API request, return its result, and turn a refused or malformed answer into an error.
+    async fn send<T: DeserializeOwned>(&self, method: &str, request: RequestBuilder) -> Result<T, TelegramError> {
         let http_error = |message: String| TelegramError::Http { method: method.to_owned(), message };
         let response = request
             .send()
             .await
             // Telegram errors name the bot URL, so drop it to keep the token out of logs.
             .map_err(|error| http_error(error.without_url().to_string()))?;
-        let envelope: Envelope =
+        let envelope: Envelope<T> =
             response.json().await.map_err(|error| http_error(format!("invalid response: {}", error.without_url())))?;
         if envelope.ok {
-            return Ok(());
+            return envelope.result.ok_or_else(|| http_error("missing result".to_owned()));
         }
         match (envelope.description, envelope.error_code) {
             (Some(description), Some(error_code)) => {
@@ -184,7 +244,7 @@ mod tests {
     use crate::testing::{CannedResponse, serve};
 
     fn api(base_url: String) -> TelegramBotApi {
-        TelegramBotApi { base_url, http: reqwest::Client::new() }
+        TelegramBotApi { base_url, http: reqwest::Client::new(), timeout: Duration::from_secs(5) }
     }
 
     fn upload(index: usize, content_type: &str) -> TelegramUpload {
@@ -216,6 +276,27 @@ mod tests {
         assert!(matches!(proxy_error, TelegramError::Http { .. }) && proxy_error.is_retryable());
         assert!(matches!(refusal, TelegramError::Api { error_code: 429, .. }) && refusal.is_retryable());
         server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn get_updates_asks_for_messages_after_the_offset_and_reads_them() {
+        let body = r#"{"ok": true, "result": [
+            {"update_id": 7, "message": {"message_id": 1, "chat": {"id": 42, "type": "private"},
+                "from": {"id": 5, "is_bot": false, "first_name": "A"}, "text": "/start"}},
+            {"update_id": 8, "edited_message": {}}
+        ]}"#;
+        let (url, server) = serve(vec![CannedResponse::new(200, "application/json", body)]).await;
+
+        let updates = api(url).get_updates(7, Duration::from_secs(1)).await.unwrap();
+
+        let start = Message { chat: Chat { id: 42 }, from: Some(User { id: 5 }), text: Some("/start".to_owned()) };
+        assert_eq!(updates, [Update { update_id: 7, message: Some(start) }, Update { update_id: 8, message: None }]);
+        let requests = server.await.unwrap();
+        let (_, payload) = requests[0].split_once("\r\n\r\n").unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(payload).unwrap(),
+            json!({"offset": 7, "timeout": 1, "allowed_updates": ["message"]})
+        );
     }
 
     #[tokio::test]

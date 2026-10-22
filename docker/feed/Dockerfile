@@ -4,6 +4,7 @@ WORKDIR /build
 
 # Cargo loads every workspace member, so the build copies all of them.
 COPY Cargo.toml Cargo.lock ./
+COPY bot bot
 COPY common common
 COPY feed feed
 COPY recapper recapper

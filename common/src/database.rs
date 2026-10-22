@@ -1,9 +1,6 @@
 use anyhow::Result;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
-/// The `app_setting` key of the bot chat that receives posts and recaps, which the bot stores on /start.
-pub const DESTINATION_CHAT_ID_KEY: &str = "destination_chat_id";
-
 /// Create a lazily connected pool, so a service starts while the database is down.
 pub fn connect_lazy(database_url: &str, max_connections: u32) -> Result<PgPool> {
     Ok(PgPoolOptions::new().max_connections(max_connections).connect_lazy(&postgres_url(database_url))?)

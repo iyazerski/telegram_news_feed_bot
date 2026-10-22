@@ -1,10 +1,11 @@
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
+use common::settings::RecapSettings;
 use common::telegram::bot_api::{TelegramBotApi, TelegramError};
 use tracing::{error, info, warn};
 
 use crate::config::Configs;
-use crate::domain::recaps::{RecapSettings, RecapStory, select_new_stories};
+use crate::domain::recaps::{RecapStory, select_new_stories};
 use crate::infrastructure::ai::prompt::{build_news_recap_prompt, parse_news_recap_output};
 use crate::infrastructure::ai::researcher::{ChatGptResearcher, ResearchError};
 use crate::infrastructure::database::{PostgresRecapStore, StoredRecap};

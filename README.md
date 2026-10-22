@@ -6,14 +6,14 @@ It can also send AI news recaps: every few hours, an AI agent researches the web
 
 ## Services
 
-- `bot`: Telegram command UI, webhook receiver, and Mini App API/frontend for managing source channels and polling interval.
+- `bot`: A Rust service in `bot/` with the Telegram command UI, webhook receiver, and Mini App API/frontend for managing source channels, the polling interval, and AI recaps.
 - `feed`: A Rust service in `feed/` that periodically checks the public web preview pages of your channels and reposts each new post as one Telegram bot delivery, in order per channel.
 - `recapper`: A Rust service in `recapper/` that sends AI news recaps on schedule. It runs a [Rig](https://rig.rs) agent on `gpt-6-luna` with medium reasoning, signed in with your ChatGPT account, and searches the web through [Tavily](https://tavily.com).
 - `postgres`: Persistent source subscriptions, bot-chat destination, and per-channel committed cursors.
 
 ## Mini App
 
-The bot service serves a Telegram Mini App at `/app` and authenticated JSON API routes at `/api/*`. The Mini App validates Telegram `initData` on the backend and restricts access to `TELEGRAM_NEWS_ADMIN_USER_ID` when configured.
+The bot service serves a Telegram Mini App at `/app/` and authenticated JSON API routes at `/api/*`. The Mini App files are built into the bot binary. The API validates Telegram `initData` and serves only `TELEGRAM_NEWS_ADMIN_USER_ID`, which the bot requires.
 
 Set `TELEGRAM_NEWS_MINI_APP_URL` to a public HTTPS URL when running a local test bot through a tunnel. In production, the menu button defaults to `https://<TELEGRAM_NEWS_PUBLIC_HOST>/app`. Set `TELEGRAM_NEWS_BOT_CONFIGURE_MENU_BUTTON=false` to skip automatic menu-button configuration.
 
@@ -40,24 +40,16 @@ Web search needs a Tavily API key. CD reads it from the `TAVILY_API_KEY` GitHub 
 ```bash
 uv sync --group dev
 uv run alembic upgrade head
-uv run python -m src.entrypoints.bot.main
+cargo run -p bot
 cargo run -p feed
 cargo run -p recapper -- login   # once, to sign in to ChatGPT
 cargo run -p recapper
 ```
 
-The Rust services read the same `.env` file. The local recapper also needs `TELEGRAM_NEWS_RECAP_TAVILY_API_KEY`, and keeps its ChatGPT sign-in in `.recapper-auth/`.
+All services read the same `.env` file. The local recapper also needs `TELEGRAM_NEWS_RECAP_TAVILY_API_KEY`, and keeps its ChatGPT sign-in in `.recapper-auth/`.
 
 The bot defaults to long polling locally with `TELEGRAM_NEWS_BOT_UPDATE_MODE=polling` and also serves the Mini App/API on `http://127.0.0.1:8000`. Production Kubernetes config sets `TELEGRAM_NEWS_BOT_UPDATE_MODE=webhook` and registers `https://newsfeedbot.iyazerski.dev/telegram/webhook` with Telegram. Telegram allows only one update mode per bot token; set `TELEGRAM_NEWS_BOT_DELETE_WEBHOOK_ON_POLLING_START=true` locally only when you intentionally want local polling to take over that token.
 
 ## Code Layout
 
-The Python services:
-
-- `src/entrypoints` contains microservice runtimes, HTTP routes, commands, and process wiring.
-- `src/use_cases` contains workflows such as channel, settings, and recap management.
-- `src/domain` contains transport-free business concepts and decisions.
-- `src/infrastructure` contains database, Telegram Bot API, and other adapters.
-- `tests/unit` mirrors the `src` package layout for focused unit coverage.
-
-The Rust services form one Cargo workspace. `feed/src` and `recapper/src` use the same layers: `domain`, `infrastructure`, `use_cases`, and `entrypoints`, with unit tests next to the code. `common/` holds what both share: settings loading, logging, shutdown, the database pool, and the Telegram Bot API client. Alembic in the Python project owns the database schema that all services share.
+The services form one Cargo workspace. `bot/src`, `feed/src`, and `recapper/src` use the same layers: `domain`, `infrastructure`, `use_cases`, and `entrypoints`, with unit tests next to the code. `common/` holds what they share: settings loading, logging, shutdown, the database pool, the stored app settings, and the Telegram Bot API client. Alembic in the small Python project (`src/` and `db_migrations/`) owns the database schema that all services share.

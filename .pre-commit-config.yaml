@@ -32,37 +32,13 @@ repos:
         pass_filenames: true
         types: [python]
 
-      - id: vulture
-        name: vulture
-        entry: uv run vulture
-        require_serial: true
-        language: unsupported
-        pass_filenames: false
-        types: [python]
-
-      - id: layer-imports
-        name: layer imports
-        entry: uv run python scripts/check_layer_imports.py
-        require_serial: true
-        language: unsupported
-        pass_filenames: false
-        types: [python]
-
-      - id: pytest-unit
-        name: pytest unit
-        entry: uv run pytest -m "unit"
-        require_serial: true
-        language: unsupported
-        pass_filenames: false
-        types: [python]
-
       - id: cargo-fmt
         name: cargo fmt
         entry: cargo fmt --all
         require_serial: true
         language: unsupported
         pass_filenames: false
-        files: &rust-files ^(Cargo\.(toml|lock)|rustfmt\.toml|common/|feed/|recapper/)
+        files: &rust-files ^(Cargo\.(toml|lock)|rustfmt\.toml|bot/|common/|feed/|recapper/)
 
       - id: cargo-clippy
         name: cargo clippy

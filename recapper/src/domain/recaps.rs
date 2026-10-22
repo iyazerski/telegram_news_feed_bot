@@ -5,15 +5,6 @@ use url::Url;
 // Tracking parameters differ between shares of one article, so they must not defeat deduplication.
 const TRACKING_QUERY_PREFIXES: [&str; 5] = ["utm_", "fbclid", "gclid", "mc_", "ref"];
 
-/// The recap settings the Mini App stores.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecapSettings {
-    pub topics: Vec<String>,
-    pub language: String,
-    pub interval_seconds: i64,
-    pub enabled: bool,
-}
-
 /// One researched news story.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecapStory {

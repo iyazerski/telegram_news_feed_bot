@@ -1,14 +1,13 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use common::database::{DESTINATION_CHAT_ID_KEY, connect_lazy};
+use common::database::connect_lazy;
+use common::settings::{DESTINATION_CHAT_ID_KEY, POLL_INTERVAL_SECONDS_KEY, load_settings};
 use sqlx::Row;
 use sqlx::postgres::PgPool;
 
 use crate::domain::posts::SourceChannel;
 
-// Setting key shared with the Python services' SettingsService.
-const POLL_INTERVAL_SECONDS_KEY: &str = "poll_interval_seconds";
 // One loop does one thing at a time; the second connection only covers a reconnect.
 const MAX_CONNECTIONS: u32 = 2;
 
@@ -18,7 +17,7 @@ pub struct FeedSettings {
     pub poll_interval: Duration,
 }
 
-/// Channel subscriptions, their cursors, and feed settings in the shared Postgres database, whose schema Alembic owns.
+/// Channel subscriptions, their cursors, and feed settings in the shared Postgres database.
 pub struct PostgresFeedStore {
     pool: PgPool,
 }
@@ -31,21 +30,15 @@ impl PostgresFeedStore {
 
     /// Read the destination chat and the poll interval, which falls back to the default before the first save.
     pub async fn load_settings(&self, default_poll_interval_seconds: u64) -> Result<FeedSettings> {
-        let rows = sqlx::query("SELECT key, value FROM app_setting WHERE key = ANY($1)")
-            .bind(&[DESTINATION_CHAT_ID_KEY, POLL_INTERVAL_SECONDS_KEY][..])
-            .fetch_all(&self.pool)
-            .await?;
-        let mut settings =
-            FeedSettings { destination: None, poll_interval: Duration::from_secs(default_poll_interval_seconds) };
-        for row in rows {
-            let value: String = row.get("value");
-            if row.get::<&str, _>("key") == POLL_INTERVAL_SECONDS_KEY {
-                settings.poll_interval = Duration::from_secs(value.parse().context("invalid stored poll interval")?);
-            } else {
-                settings.destination = Some(value);
-            }
-        }
-        Ok(settings)
+        let mut values = load_settings(&self.pool, &[DESTINATION_CHAT_ID_KEY, POLL_INTERVAL_SECONDS_KEY]).await?;
+        let poll_interval_seconds = match values.get(POLL_INTERVAL_SECONDS_KEY) {
+            Some(seconds) => seconds.parse().context("invalid stored poll interval")?,
+            None => default_poll_interval_seconds,
+        };
+        Ok(FeedSettings {
+            destination: values.remove(DESTINATION_CHAT_ID_KEY),
+            poll_interval: Duration::from_secs(poll_interval_seconds),
+        })
     }
 
     /// Return up to `limit` active channels after the `after` username, in username order.

@@ -7,51 +7,31 @@ name = "telegram-news-feed-bot"
 authors = [
     {name = "Ihar Yazerski", email = "ihar.yazerski@gmail.com"},
 ]
-description = "Self-hosted Telegram public channel feed aggregator"
+description = "Database migrations for the Telegram News Feed Bot"
 readme = "README.md"
 requires-python = ">=3.14"
 license = { text = "Proprietary" }
 version = "0.1.0"
 dependencies = [
     "alembic>=1.18.4",
-    "fastapi>=0.138.0",
-    "httpx>=0.28.1",
-    "loguru>=0.7.3",
     "psycopg[binary]>=3.3.3",
-    "pydantic>=2.13.3",
     "pydantic-settings>=2.13.1",
     "sqlalchemy>=2.0.48",
-    "uvicorn>=0.49.0",
 ]
 
 [dependency-groups]
 dev = [
-    "ipython>=9.11.0",
     "pre-commit>=4.5.1",
-    "pytest>=9.0.2",
-    "pytest-asyncio>=1.4.0",
     "ruff>=0.15.5",
     "ty>=0.0.21",
-    "vulture>=2.16",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
 
-[tool.setuptools.package-data]
-"src.entrypoints.bot.mini_app" = ["static/*"]
-
 [tool.uv]
 package = true
-
-[tool.pytest.ini_options]
-addopts = "-ra"
-testpaths = ["tests"]
-markers = [
-    "unit: mark isolated unit tests.",
-    "functional: mark functional tests.",
-]
 
 [tool.ty.rules]
 invalid-method-override = "ignore"
@@ -77,24 +57,3 @@ ignore = ["CPY","TRY","PGH","D","DOC","TD","C90","FLY","EM","G","PERF401","DTZ",
 
 [tool.ruff.format]
 quote-style = "double"
-
-[tool.vulture]
-paths = ["src", "tests"]
-ignore_decorators = ["@router.*", "@app.*"]
-ignore_names = [
-    # The Rust recapper reads and writes sent_recap_story; the model keeps the table in Alembic's schema.
-    "SentRecapStory",
-    "created_at",
-    "first_name",
-    "handlers",
-    "language_code",
-    # The Rust feed reads and advances the channel cursors.
-    "last_committed_message_id",
-    "last_name",
-    "model_config",
-    "poll_interval_seconds",
-    "pytestmark",
-    "sent_at",
-    "title",
-    "updated_at",
-]

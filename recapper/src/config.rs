@@ -1,10 +1,12 @@
 use std::time::Duration;
 
 use anyhow::{Result, bail};
-use common::config::{default_database_url, default_log_level, default_telegram_http_timeout_seconds};
+use common::config::{
+    default_database_url, default_log_level, default_recap_interval_seconds, default_telegram_http_timeout_seconds,
+};
 use serde::Deserialize;
 
-/// Recapper settings, read from `TELEGRAM_NEWS_*` variables like the Python services' `AppConfigs`.
+/// Recapper settings, read from `TELEGRAM_NEWS_*` variables.
 #[derive(Debug, Deserialize)]
 pub struct Configs {
     #[serde(default = "default_database_url")]
@@ -57,10 +59,6 @@ impl Configs {
     pub fn telegram_http_timeout(&self) -> Duration {
         Duration::from_secs_f64(self.telegram_http_timeout_seconds)
     }
-}
-
-fn default_recap_interval_seconds() -> i64 {
-    21_600
 }
 
 fn default_recap_check_interval_seconds() -> u64 {

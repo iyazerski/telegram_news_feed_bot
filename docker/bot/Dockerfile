@@ -1,33 +1,24 @@
-FROM python:3.14-slim AS builder
+FROM rust:1.99-slim-trixie AS builder
 
-COPY --from=ghcr.io/astral-sh/uv:0.8.22 /uv /uvx /bin/
+WORKDIR /build
 
-ENV UV_COMPILE_BYTECODE=1
-ENV UV_LINK_MODE=copy
+# Cargo loads every workspace member, so the build copies all of them.
+COPY Cargo.toml Cargo.lock ./
+COPY bot bot
+COPY common common
+COPY feed feed
+COPY recapper recapper
 
-WORKDIR /app
-
-COPY LICENSE README.md pyproject.toml uv.lock ./
-COPY src src
-
-RUN uv sync --locked --no-dev
+RUN cargo build --release --locked -p bot
 
 
-FROM python:3.14-slim AS runtime
+# Distroless keeps glibc and CA certificates for the TLS clients, without a shell or package manager.
+FROM gcr.io/distroless/cc-debian13 AS runtime
 
-RUN adduser --disabled-password --gecos "" --uid 10001 appuser
+COPY --from=builder /build/target/release/bot /usr/local/bin/bot
 
-WORKDIR /app
-
-COPY --from=builder --chown=appuser:appuser /app /app
-
-USER appuser
-
-ENV PATH="/app/.venv/bin:$PATH"
-ENV PYTHONUNBUFFERED=1
-# Cap glibc malloc arenas, which otherwise grow per thread (asyncio.to_thread workers) and inflate idle memory.
-ENV MALLOC_ARENA_MAX=2
+USER 10001:10001
 
 EXPOSE 8000
 
-CMD ["python", "-m", "src.entrypoints.bot.main"]
+ENTRYPOINT ["/usr/local/bin/bot"]

@@ -1,6 +1,6 @@
 [package]
 name = "common"
-description = "Settings, runtime, database, and Telegram Bot API pieces shared by the Rust services"
+description = "Settings, runtime, database, app settings, and Telegram Bot API pieces shared by the Rust services"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,6 +13,7 @@ testing = ["tokio/io-util", "tokio/net"]
 
 [dependencies]
 anyhow.workspace = true
+chrono.workspace = true
 dotenvy.workspace = true
 envy.workspace = true
 reqwest = { workspace = true, features = ["multipart"] }

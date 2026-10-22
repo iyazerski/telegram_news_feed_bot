@@ -1,10 +1,12 @@
 use std::time::Duration;
 
 use anyhow::{Result, bail};
-use common::config::{default_database_url, default_log_level, default_telegram_http_timeout_seconds};
+use common::config::{
+    default_database_url, default_log_level, default_poll_interval_seconds, default_telegram_http_timeout_seconds,
+};
 use serde::Deserialize;
 
-/// Feed settings, read from `TELEGRAM_NEWS_*` variables like the Python services' `AppConfigs`.
+/// Feed settings, read from `TELEGRAM_NEWS_*` variables.
 #[derive(Debug, Deserialize)]
 pub struct Configs {
     #[serde(default = "default_database_url")]
@@ -57,8 +59,4 @@ fn default_preview_http_timeout_seconds() -> f64 {
 // Telegram bots can upload videos of up to 50 MB.
 fn default_post_media_max_bytes() -> u64 {
     50_000_000
-}
-
-fn default_poll_interval_seconds() -> u64 {
-    300
 }

@@ -52,14 +52,14 @@ spec:
                 name: telegram-news-database-secrets
             - secretRef:
                 name: telegram-news-bot-secrets
-          # Python startup was throttled at a 250m CPU limit; after it, the bot averages about 3m.
+          # The bot used 1.2 MiB in a Linux container while serving the Mini App; the limit leaves room for the DB pool.
           resources:
             requests:
-              cpu: 15m
-              memory: 96Mi
+              cpu: 10m
+              memory: 16Mi
             limits:
-              cpu: 500m
-              memory: 192Mi
+              cpu: 250m
+              memory: 64Mi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

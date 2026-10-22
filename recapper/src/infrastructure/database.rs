@@ -1,20 +1,15 @@
-use std::collections::HashMap;
-
-use anyhow::{Context, Result};
-use chrono::{DateTime, SecondsFormat, Utc};
-use common::database::{DESTINATION_CHAT_ID_KEY, connect_lazy};
+use anyhow::Result;
+use chrono::{DateTime, Utc};
+use common::database::connect_lazy;
+use common::settings::{
+    DESTINATION_CHAT_ID_KEY, RECAP_KEYS, RecapSchedule, RecapSettings, load_settings, parse_recap_schedule,
+    store_recap_next_run_at,
+};
+use sqlx::Row;
 use sqlx::postgres::PgPool;
-use sqlx::{Executor, Postgres, Row};
 
-use crate::domain::recaps::{RecapSettings, RecapStory};
+use crate::domain::recaps::RecapStory;
 
-// Setting keys shared with the Python services' SettingsService.
-const RECAP_TOPICS_KEY: &str = "recap_topics";
-const RECAP_LANGUAGE_KEY: &str = "recap_language";
-const RECAP_INTERVAL_SECONDS_KEY: &str = "recap_interval_seconds";
-const RECAP_ENABLED_KEY: &str = "recap_enabled";
-const RECAP_NEXT_RUN_AT_KEY: &str = "recap_next_run_at";
-const DEFAULT_RECAP_LANGUAGE: &str = "English";
 // One loop does one thing at a time; the second connection only covers a reconnect.
 const MAX_CONNECTIONS: u32 = 2;
 
@@ -25,7 +20,7 @@ pub struct StoredRecap {
     pub destination: Option<String>,
 }
 
-/// Recap settings and sent-story history in the shared Postgres database, whose schema Alembic owns.
+/// Recap settings and sent-story history in the shared Postgres database.
 pub struct PostgresRecapStore {
     pool: PgPool,
 }
@@ -38,45 +33,11 @@ impl PostgresRecapStore {
 
     /// Read the recap settings, next run time, and destination chat.
     pub async fn load_recap(&self, default_interval_seconds: i64) -> Result<StoredRecap> {
-        let keys = [
-            DESTINATION_CHAT_ID_KEY,
-            RECAP_TOPICS_KEY,
-            RECAP_LANGUAGE_KEY,
-            RECAP_INTERVAL_SECONDS_KEY,
-            RECAP_ENABLED_KEY,
-            RECAP_NEXT_RUN_AT_KEY,
-        ];
-        let rows = sqlx::query("SELECT key, value FROM app_setting WHERE key = ANY($1)")
-            .bind(&keys[..])
-            .fetch_all(&self.pool)
-            .await?;
-        let mut values: HashMap<String, String> =
-            rows.into_iter().map(|row| (row.get("key"), row.get("value"))).collect();
-        let topics = match values.remove(RECAP_TOPICS_KEY) {
-            Some(topics) => serde_json::from_str(&topics).context("invalid stored recap topics")?,
-            None => Vec::new(),
-        };
-        let interval_seconds = match values.remove(RECAP_INTERVAL_SECONDS_KEY) {
-            Some(seconds) => seconds.parse().context("invalid stored recap interval")?,
-            None => default_interval_seconds,
-        };
-        let next_run_at = match values.remove(RECAP_NEXT_RUN_AT_KEY).filter(|value| !value.is_empty()) {
-            Some(value) => Some(DateTime::parse_from_rfc3339(&value).context("invalid stored recap time")?.to_utc()),
-            None => None,
-        };
-        Ok(StoredRecap {
-            settings: RecapSettings {
-                topics,
-                language: values
-                    .remove(RECAP_LANGUAGE_KEY)
-                    .filter(|language| !language.is_empty())
-                    .unwrap_or_else(|| DEFAULT_RECAP_LANGUAGE.to_owned()),
-                interval_seconds,
-                enabled: values.get(RECAP_ENABLED_KEY).is_some_and(|enabled| enabled == "true"),
-            },
-            next_run_at,
-            destination: values.remove(DESTINATION_CHAT_ID_KEY),
-        })
+        let mut keys = RECAP_KEYS.to_vec();
+        keys.push(DESTINATION_CHAT_ID_KEY);
+        let mut values = load_settings(&self.pool, &keys).await?;
+        let RecapSchedule { settings, next_run_at } = parse_recap_schedule(&values, default_interval_seconds)?;
+        Ok(StoredRecap { settings, next_run_at, destination: values.remove(DESTINATION_CHAT_ID_KEY) })
     }
 
     /// Return the newest sent stories as (title, url) pairs.
@@ -109,26 +70,13 @@ impl PostgresRecapStore {
             .bind(prune_before)
             .execute(&mut *transaction)
             .await?;
-        set_next_run_at(&mut *transaction, next_run_at).await?;
+        store_recap_next_run_at(&mut *transaction, next_run_at).await?;
         transaction.commit().await?;
         Ok(())
     }
 
     /// Store when the next recap attempt runs.
     pub async fn schedule(&self, run_at: DateTime<Utc>) -> Result<()> {
-        set_next_run_at(&self.pool, run_at).await
+        store_recap_next_run_at(&self.pool, run_at).await
     }
-}
-
-/// Upsert the next run time in the format Python's `datetime.fromisoformat` reads.
-async fn set_next_run_at<'e>(executor: impl Executor<'e, Database = Postgres>, run_at: DateTime<Utc>) -> Result<()> {
-    sqlx::query(
-        "INSERT INTO app_setting (key, value, updated_at) VALUES ($1, $2, now()) \
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
-    )
-    .bind(RECAP_NEXT_RUN_AT_KEY)
-    .bind(run_at.to_rfc3339_opts(SecondsFormat::Micros, false))
-    .execute(executor)
-    .await?;
-    Ok(())
 }

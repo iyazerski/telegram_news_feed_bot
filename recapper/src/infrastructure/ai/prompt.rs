@@ -1,7 +1,8 @@
 use chrono::{DateTime, Utc};
+use common::settings::RecapSettings;
 use serde::Deserialize;
 
-use crate::domain::recaps::{RecapSettings, RecapStory};
+use crate::domain::recaps::RecapStory;
 
 #[derive(Deserialize)]
 struct RecapStoryOutput {
