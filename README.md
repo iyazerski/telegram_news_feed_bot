@@ -45,6 +45,8 @@ cargo run -p recapper -- login   # once, to sign in to ChatGPT
 cargo run -p recapper
 ```
 
+Checks run with [prek](https://prek.j178.dev): `prek install` adds the Git hook, and `prek run --all-files` runs every check, as CI does.
+
 All services read the same `.env` file. The local recapper also needs `TELEGRAM_NEWS_RECAP_TAVILY_API_KEY`, and keeps its ChatGPT sign-in in `.recapper-auth/`.
 
 The bot defaults to long polling locally with `TELEGRAM_NEWS_BOT_UPDATE_MODE=polling` and also serves the Mini App/API on `http://127.0.0.1:8000`. Production Kubernetes config sets `TELEGRAM_NEWS_BOT_UPDATE_MODE=webhook` and registers `https://newsfeedbot.iyazerski.dev/telegram/webhook` with Telegram. Telegram allows only one update mode per bot token; set `TELEGRAM_NEWS_BOT_DELETE_WEBHOOK_ON_POLLING_START=true` locally only when you intentionally want local polling to take over that token.
