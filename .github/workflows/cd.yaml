@@ -34,7 +34,7 @@ jobs:
       IMAGE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
@@ -57,7 +57,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push bot image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/bot/Dockerfile
@@ -67,7 +67,7 @@ jobs:
             ghcr.io/${{ github.repository }}:bot-latest
 
       - name: Build and push feed image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/feed/Dockerfile
@@ -77,7 +77,7 @@ jobs:
             ghcr.io/${{ github.repository }}:feed-latest
 
       - name: Build and push recapper image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/recapper/Dockerfile
@@ -87,7 +87,7 @@ jobs:
             ghcr.io/${{ github.repository }}:recapper-latest
 
       - name: Build and push migration image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/migration/Dockerfile
@@ -121,7 +121,7 @@ jobs:
       TELEGRAM_NEWS_BOT_WEBHOOK_SECRET_TOKEN: ${{ secrets.TELEGRAM_NEWS_BOT_WEBHOOK_SECRET_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
@@ -236,13 +236,6 @@ jobs:
       - name: Record running release
         # Remember the live revisions, so a failed deploy or smoke check can restore them.
         run: scripts/release_guard.sh record deployment/telegram-news-bot deployment/telegram-news-feed deployment/telegram-news-recapper
-
-      - name: Remove retired services
-        # The feed replaced the poller, the dispatcher, and NATS. They must stop before it starts, or posts arrive twice.
-        run: |
-          kubectl -n "${NAMESPACE}" delete --ignore-not-found --wait=true \
-            deployment/telegram-news-poller deployment/telegram-news-dispatcher deployment/telegram-news-nats \
-            service/telegram-news-nats
 
       - name: Deploy application services
         run: |
