@@ -30,7 +30,9 @@ jobs:
       feed_image: ${{ steps.image-refs.outputs.feed_image }}
       migration_image: ${{ steps.image-refs.outputs.migration_image }}
       recapper_image: ${{ steps.image-refs.outputs.recapper_image }}
+    # docker-bake.hcl reads both variables to tag the images.
     env:
+      IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
       IMAGE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
     steps:
       - name: Checkout
@@ -41,10 +43,10 @@ jobs:
       - name: Resolve image references
         id: image-refs
         run: |
-          echo "bot_image=ghcr.io/${{ github.repository }}:bot-${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "feed_image=ghcr.io/${{ github.repository }}:feed-${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "migration_image=ghcr.io/${{ github.repository }}:migration-${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "recapper_image=ghcr.io/${{ github.repository }}:recapper-${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "bot_image=${IMAGE_REPOSITORY}:bot-${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "feed_image=${IMAGE_REPOSITORY}:feed-${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "migration_image=${IMAGE_REPOSITORY}:migration-${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "recapper_image=${IMAGE_REPOSITORY}:recapper-${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -56,45 +58,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push bot image
-        uses: docker/build-push-action@v7
+      - name: Build and push images
+        uses: docker/bake-action@v7
         with:
-          context: .
-          file: docker/bot/Dockerfile
+          # Build the checked-out commit, which is the CI-tested one, rather than the event's Git ref.
+          source: .
           push: true
-          tags: |
-            ${{ steps.image-refs.outputs.bot_image }}
-            ghcr.io/${{ github.repository }}:bot-latest
-
-      - name: Build and push feed image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: docker/feed/Dockerfile
-          push: true
-          tags: |
-            ${{ steps.image-refs.outputs.feed_image }}
-            ghcr.io/${{ github.repository }}:feed-latest
-
-      - name: Build and push recapper image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: docker/recapper/Dockerfile
-          push: true
-          tags: |
-            ${{ steps.image-refs.outputs.recapper_image }}
-            ghcr.io/${{ github.repository }}:recapper-latest
-
-      - name: Build and push migration image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: docker/migration/Dockerfile
-          push: true
-          tags: |
-            ${{ steps.image-refs.outputs.migration_image }}
-            ghcr.io/${{ github.repository }}:migration-latest
 
   deploy:
     needs: build
