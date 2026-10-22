@@ -84,7 +84,8 @@ quote-style = "double"
 paths = ["src", "tests"]
 ignore_decorators = ["@router.*", "@app.*"]
 ignore_names = [
-    "available_models",
+    # The Rust recapper reads and writes sent_recap_story; the model keeps the table in Alembic's schema.
+    "SentRecapStory",
     "created_at",
     "first_name",
     "handlers",
@@ -93,5 +94,7 @@ ignore_names = [
     "model_config",
     "poll_interval_seconds",
     "pytestmark",
+    "sent_at",
+    "title",
     "updated_at",
 ]

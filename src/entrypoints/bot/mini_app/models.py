@@ -3,8 +3,6 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints
 
-from src.domain.recaps import ThinkingLevel
-
 RecapTopic = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
 
 
@@ -40,10 +38,7 @@ class RecapResponse(BaseModel):
     language: str
     interval_seconds: int
     enabled: bool
-    model: str
-    thinking: ThinkingLevel
     next_run_at: datetime | None
-    available_models: list[str]
 
 
 class AppStateResponse(ChannelPageResponse, SettingsResponse):
@@ -63,5 +58,3 @@ class RecapSettingsRequest(BaseModel):
     language: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]
     interval: Literal["3h", "6h", "12h", "24h"]
     enabled: bool
-    model: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
-    thinking: ThinkingLevel

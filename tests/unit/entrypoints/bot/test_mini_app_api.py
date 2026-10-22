@@ -89,30 +89,20 @@ async def test_recap_settings_schedule_recaps_and_validate_input(api_client: htt
         "language": "English",
         "interval_seconds": 21_600,
         "enabled": False,
-        "model": "gpt-6-luna",
-        "thinking": "high",
         "next_run_at": None,
-        "available_models": [],
     }
     assert (await api_client.post("/api/recap/send-now")).status_code == 400
 
-    request = {
-        "topics": [],
-        "language": "Russian",
-        "interval": "12h",
-        "enabled": True,
-        "model": "gpt-6-sol",
-        "thinking": "medium",
-    }
+    request = {"topics": [], "language": "Russian", "interval": "12h", "enabled": True}
     response = await api_client.put("/api/recap", json=request)
     assert response.status_code == 400
-    assert (await api_client.put("/api/recap", json={**request, "thinking": "extreme"})).status_code == 422
+    assert (await api_client.put("/api/recap", json={**request, "interval": "2h"})).status_code == 422
 
     response = await api_client.put("/api/recap", json={**request, "topics": [" AI ", "AI", "Space"]})
     assert response.status_code == 200
     recap = response.json()
     assert (recap["topics"], recap["language"], recap["interval_seconds"]) == (["AI", "Space"], "Russian", 43_200)
-    assert (recap["enabled"], recap["model"], recap["thinking"]) == (True, "gpt-6-sol", "medium")
+    assert recap["enabled"]
     assert recap["next_run_at"] is not None
     assert (await api_client.post("/api/recap/send-now")).status_code == 200
 

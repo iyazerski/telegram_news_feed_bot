@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.domain.recaps import RecapSettings, ThinkingLevel, parse_thinking_level
+from src.domain.recaps import RecapSettings
 from src.infrastructure.database.models import AppSetting
 
 DESTINATION_CHAT_ID_KEY = "destination_chat_id"
@@ -14,12 +14,7 @@ RECAP_LANGUAGE_KEY = "recap_language"
 RECAP_INTERVAL_SECONDS_KEY = "recap_interval_seconds"
 RECAP_ENABLED_KEY = "recap_enabled"
 RECAP_NEXT_RUN_AT_KEY = "recap_next_run_at"
-RECAP_MODEL_KEY = "recap_model"
-RECAP_THINKING_KEY = "recap_thinking"
-RECAP_AVAILABLE_MODELS_KEY = "recap_available_models"
 DEFAULT_RECAP_LANGUAGE = "English"
-DEFAULT_RECAP_MODEL = "gpt-6-luna"
-DEFAULT_RECAP_THINKING: ThinkingLevel = "high"
 
 
 class SettingsService:
@@ -74,14 +69,11 @@ class SettingsService:
         """
         topics = self.get_value(session, RECAP_TOPICS_KEY)
         interval_seconds = self.get_value(session, RECAP_INTERVAL_SECONDS_KEY)
-        thinking = self.get_value(session, RECAP_THINKING_KEY)
         return RecapSettings(
             topics=json.loads(topics) if topics is not None else [],
             language=self.get_value(session, RECAP_LANGUAGE_KEY) or DEFAULT_RECAP_LANGUAGE,
             interval_seconds=int(interval_seconds) if interval_seconds is not None else default_interval_seconds,
             enabled=self.get_value(session, RECAP_ENABLED_KEY) == "true",
-            model=self.get_value(session, RECAP_MODEL_KEY) or DEFAULT_RECAP_MODEL,
-            thinking=parse_thinking_level(thinking) if thinking is not None else DEFAULT_RECAP_THINKING,
         )
 
     def set_recap_settings(self, session: Session, settings: RecapSettings) -> None:
@@ -92,21 +84,6 @@ class SettingsService:
         self.set_value(session, RECAP_LANGUAGE_KEY, settings.language)
         self.set_value(session, RECAP_INTERVAL_SECONDS_KEY, str(settings.interval_seconds))
         self.set_value(session, RECAP_ENABLED_KEY, "true" if settings.enabled else "false")
-        self.set_value(session, RECAP_MODEL_KEY, settings.model)
-        self.set_value(session, RECAP_THINKING_KEY, settings.thinking)
-
-    def get_recap_available_models(self, session: Session) -> list[str]:
-        """
-        Return the model IDs the recapper last found for its signed-in Pi provider.
-        """
-        value = self.get_value(session, RECAP_AVAILABLE_MODELS_KEY)
-        return json.loads(value) if value is not None else []
-
-    def set_recap_available_models(self, session: Session, models: list[str]) -> None:
-        """
-        Store the model IDs available to the recapper's signed-in Pi provider.
-        """
-        self.set_value(session, RECAP_AVAILABLE_MODELS_KEY, json.dumps(models))
 
     def get_recap_next_run_at(self, session: Session) -> datetime | None:
         """

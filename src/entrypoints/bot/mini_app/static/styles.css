@@ -226,10 +226,7 @@ textarea:focus {
   gap: 8px;
 }
 
-.field-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+.recap-language {
   margin-bottom: 4px;
 }
 
@@ -276,8 +273,7 @@ button.secondary {
 }
 
 @media (max-width: 480px) {
-  .input-action,
-  .field-grid {
+  .input-action {
     grid-template-columns: 1fr;
   }
 }

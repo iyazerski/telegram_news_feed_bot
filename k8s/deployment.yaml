@@ -181,7 +181,7 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: telegram-news-pi-home-pvc
+  name: telegram-news-recapper-auth-pvc
   labels:
     app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news
@@ -203,7 +203,7 @@ metadata:
     component: recapper
 spec:
   replicas: 1
-  # The Pi home volume is ReadWriteOnce, and two recappers could send the same recap twice.
+  # The sign-in volume is ReadWriteOnce, and two recappers could send the same recap twice.
   strategy:
     type: Recreate
   selector:
@@ -235,16 +235,19 @@ spec:
                 name: telegram-news-database-secrets
             - secretRef:
                 name: telegram-news-bot-secrets
+            - secretRef:
+                name: telegram-news-recapper-secrets
           volumeMounts:
-            - name: pi-home
-              mountPath: /var/lib/telegram-news/pi
+            - name: chatgpt-auth
+              mountPath: /var/lib/telegram-news/auth
+          # A recap peaked at 14 MiB in a Linux container; the limit leaves room for long agent transcripts.
           resources:
             requests:
-              cpu: 25m
-              memory: 320Mi
+              cpu: 10m
+              memory: 32Mi
             limits:
-              cpu: 1000m
-              memory: 640Mi
+              cpu: 500m
+              memory: 128Mi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -254,6 +257,6 @@ spec:
             runAsNonRoot: true
             runAsUser: 10001
       volumes:
-        - name: pi-home
+        - name: chatgpt-auth
           persistentVolumeClaim:
-            claimName: telegram-news-pi-home-pvc
+            claimName: telegram-news-recapper-auth-pvc

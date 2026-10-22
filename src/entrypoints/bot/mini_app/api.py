@@ -45,17 +45,14 @@ def create_mini_app_api_router(configs: AppConfigs, db: Database, settings: Sett
     recaps = RecapScheduleService(settings, configs.default_recap_interval_seconds)
 
     def build_recap(database_session: Session) -> RecapResponse:
-        """Read the recap settings, schedule, and selectable models."""
+        """Read the recap settings and schedule."""
         recap = recaps.get_settings(database_session)
         return RecapResponse(
             topics=recap.topics,
             language=recap.language,
             interval_seconds=recap.interval_seconds,
             enabled=recap.enabled,
-            model=recap.model,
-            thinking=recap.thinking,
             next_run_at=recaps.get_next_run_at(database_session),
-            available_models=settings.get_recap_available_models(database_session),
         )
 
     def build_channel_page(database_session: Session, after: str) -> ChannelPageResponse:
@@ -155,8 +152,6 @@ def create_mini_app_api_router(configs: AppConfigs, db: Database, settings: Sett
             language=request.language,
             interval_seconds=RECAP_INTERVAL_SECONDS[request.interval],
             enabled=request.enabled,
-            model=request.model,
-            thinking=request.thinking,
         )
         with db.create_session() as database_session:
             try:

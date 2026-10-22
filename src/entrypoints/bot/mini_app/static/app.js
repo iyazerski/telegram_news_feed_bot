@@ -19,8 +19,6 @@ const elements = {
   recapEnabled: document.querySelector("#recap-enabled"),
   recapTopics: document.querySelector("#recap-topics"),
   recapLanguage: document.querySelector("#recap-language"),
-  recapModel: document.querySelector("#recap-model"),
-  recapThinking: document.querySelector("#recap-thinking"),
   recapIntervalButtons: document.querySelectorAll("[data-recap-interval]"),
   recapNext: document.querySelector("#recap-next"),
   recapSendNow: document.querySelector("#recap-send-now"),
@@ -105,8 +103,6 @@ async function saveRecap(enabled) {
       language: elements.recapLanguage.value.trim(),
       interval: state.recapInterval,
       enabled,
-      model: elements.recapModel.value,
-      thinking: elements.recapThinking.value,
     }),
   }, renderRecap);
 }
@@ -182,15 +178,6 @@ function renderRecap(recap) {
   elements.recapEnabled.checked = recap.enabled;
   elements.recapTopics.value = recap.topics.join("\n");
   elements.recapLanguage.value = recap.language;
-  elements.recapThinking.value = recap.thinking;
-
-  // Keep the saved model selectable even before the recapper has listed the account's models.
-  const models = recap.available_models.includes(recap.model)
-    ? recap.available_models
-    : [recap.model, ...recap.available_models];
-  elements.recapModel.replaceChildren(...models.map((model) => new Option(model, model)));
-  elements.recapModel.value = recap.model;
-
   elements.recapNext.textContent = recap.next_run_at
     ? `Next recap: ${new Date(recap.next_run_at).toLocaleString()}`
     : "AI recaps are off.";

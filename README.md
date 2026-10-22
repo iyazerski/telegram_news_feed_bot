@@ -2,14 +2,14 @@
 
 Self-hosted Telegram public channel feed aggregator. It discovers public `t.me/s/<channel>` posts, publishes structured post metadata through NATS, and reposts each source post into your direct chat with the bot. Text formatting, links, and preview-exposed images are preserved where Telegram's Bot API limits allow; multi-image posts are sent as one grouped album.
 
-It can also send AI news recaps: every few hours, Pi researches the web for the most important news on your topics and sends 3 to 5 short stories with source links in your language.
+It can also send AI news recaps: every few hours, an AI agent researches the web for the most important news on your topics and sends 3 to 5 short stories with source links in your language.
 
 ## Services
 
 - `bot`: Telegram command UI, webhook receiver, and Mini App API/frontend for managing source channels and polling interval.
 - `poller`: Periodically checks public Telegram web preview pages and publishes structured post metadata.
 - `dispatcher`: Consumes post metadata and reposts each source post as one Telegram bot delivery.
-- `recapper`: Runs [Pi-Bolt](https://github.com/opensec-git/Pi-Bolt) with [pi-web-access](https://www.npmjs.com/package/pi-web-access) on schedule and sends AI news recaps. Pi uses your ChatGPT account through Sign in with ChatGPT.
+- `recapper`: A Rust service in `recapper/` that sends AI news recaps on schedule. It runs a [Rig](https://rig.rs) agent on `gpt-6-luna` with medium reasoning, signed in with your ChatGPT account, and searches the web through [Tavily](https://tavily.com).
 - `postgres`: Persistent source subscriptions, bot-chat destination, and per-channel committed cursors.
 - `nats`: Lightweight message bus between poller and dispatcher.
 
@@ -21,19 +21,15 @@ Set `TELEGRAM_NEWS_MINI_APP_URL` to a public HTTPS URL when running a local test
 
 ## AI Recaps
 
-Set topics, language, frequency, model, and reasoning level in the Mini App's AI Recap section. Turning recaps on sends the first one within a minute, and Send now requests one right away. Each recap researches at least the last 24 hours and skips stories that earlier recaps sent. The model list comes from the recapper, which asks Pi for the signed-in account's models every hour.
+Set topics, language, and frequency in the Mini App's AI Recap section. Turning recaps on sends the first one within a minute, and Send now requests one right away. Each recap researches at least the last 24 hours and skips stories that earlier recaps sent.
 
-The recapper keeps Pi's home, including the ChatGPT credential that Pi refreshes, on the `telegram-news-pi-home-pvc` volume. To sign in, or to sign in again after the bot reports a lost sign-in:
+The recapper keeps its ChatGPT sign-in, which it refreshes itself, on the `telegram-news-recapper-auth-pvc` volume. To sign in, or to sign in again after the bot reports a lost sign-in, run this and enter the shown code at the shown URL:
 
 ```bash
-export PI_CODING_AGENT_DIR="$(mktemp -d)"
-pi-bolt   # run /login, choose OpenAI (Sign in with ChatGPT), then quit
-pod="$(kubectl get pod -l component=recapper -o name | head -n 1)"
-kubectl cp "$PI_CODING_AGENT_DIR/auth.json" "${pod#pod/}:/var/lib/telegram-news/pi/auth.json"
-rm -rf "$PI_CODING_AGENT_DIR"
+kubectl exec -it deploy/telegram-news-recapper -- recapper login
 ```
 
-Delete the local copy after copying it, so two Pi installations don't race to refresh the same token. `TELEGRAM_NEWS_RECAP_PROVIDER` selects the Pi provider and defaults to `openai`.
+Web search needs a Tavily API key. CD reads it from the `TAVILY_API_KEY` GitHub Actions secret and passes it to the recapper as `TELEGRAM_NEWS_RECAP_TAVILY_API_KEY`.
 
 ## Commands
 
@@ -49,17 +45,22 @@ uv run alembic upgrade head
 uv run python -m src.entrypoints.bot.main
 uv run python -m src.entrypoints.poller.main
 uv run python -m src.entrypoints.dispatcher.main
-uv run python -m src.entrypoints.recapper.main
+cargo run --manifest-path recapper/Cargo.toml -- login   # once, to sign in to ChatGPT
+cargo run --manifest-path recapper/Cargo.toml
 ```
 
-The local recapper uses `pi` from `PATH` with your default Pi home. Install web search once with `PI_CODING_AGENT_DIR=/tmp/pi-packages pi-bolt install npm:pi-web-access@0.43.0` and set `TELEGRAM_NEWS_RECAP_PI_WEB_ACCESS_PATH=/tmp/pi-packages/npm/node_modules/pi-web-access`.
+The local recapper reads the same `.env` file, needs `TELEGRAM_NEWS_RECAP_TAVILY_API_KEY`, and keeps its ChatGPT sign-in in `.recapper-auth/`.
 
 The bot defaults to long polling locally with `TELEGRAM_NEWS_BOT_UPDATE_MODE=polling` and also serves the Mini App/API on `http://127.0.0.1:8000`. Production Kubernetes config sets `TELEGRAM_NEWS_BOT_UPDATE_MODE=webhook` and registers `https://newsfeedbot.iyazerski.dev/telegram/webhook` with Telegram. Telegram allows only one update mode per bot token; set `TELEGRAM_NEWS_BOT_DELETE_WEBHOOK_ON_POLLING_START=true` locally only when you intentionally want local polling to take over that token.
 
 ## Code Layout
+
+The Python services:
 
 - `src/entrypoints` contains microservice runtimes, HTTP routes, commands, and process wiring.
 - `src/use_cases` contains workflows such as channel management, polling discovery, and post delivery.
 - `src/domain` contains transport-free business concepts and decisions.
 - `src/infrastructure` contains database, NATS, Telegram Bot API, web-preview parsing, and other adapters.
 - `tests/unit` mirrors the `src` package layout for focused unit coverage.
+
+The Rust recapper in `recapper/src` uses the same layers: `domain`, `infrastructure`, `use_cases`, and `entrypoints`, with unit tests next to the code. Alembic in the Python project owns the database schema that both share.

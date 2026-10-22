@@ -127,6 +127,7 @@ jobs:
       POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
       POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
       RECAPPER_IMAGE: ${{ needs.build.outputs.recapper_image }}
+      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
       PUBLIC_HOST: ${{ vars.PUBLIC_HOST || secrets.PUBLIC_HOST || 'newsfeedbot.iyazerski.dev' }}
       TELEGRAM_NEWS_ADMIN_USER_ID: ${{ secrets.TELEGRAM_NEWS_ADMIN_USER_ID }}
       TELEGRAM_NEWS_BOT_TOKEN: ${{ secrets.TELEGRAM_NEWS_BOT_TOKEN }}
@@ -150,7 +151,7 @@ jobs:
 
       - name: Validate required settings
         run: |
-          for key in LETSENCRYPT_EMAIL PACKAGES_PAT POSTGRES_PASSWORD PUBLIC_HOST TELEGRAM_NEWS_BOT_TOKEN TELEGRAM_NEWS_BOT_WEBHOOK_SECRET_TOKEN; do
+          for key in LETSENCRYPT_EMAIL PACKAGES_PAT POSTGRES_PASSWORD PUBLIC_HOST TAVILY_API_KEY TELEGRAM_NEWS_BOT_TOKEN TELEGRAM_NEWS_BOT_WEBHOOK_SECRET_TOKEN; do
             if [ -z "${!key}" ]; then
               echo "${key} is required." >&2
               exit 1
@@ -218,6 +219,12 @@ jobs:
             --from-literal=TELEGRAM_NEWS_BOT_TOKEN="${TELEGRAM_NEWS_BOT_TOKEN}" \
             --from-literal=TELEGRAM_NEWS_ADMIN_USER_ID="${TELEGRAM_NEWS_ADMIN_USER_ID}" \
             --from-literal=TELEGRAM_NEWS_BOT_WEBHOOK_SECRET_TOKEN="${TELEGRAM_NEWS_BOT_WEBHOOK_SECRET_TOKEN}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply recapper secrets
+        run: |
+          kubectl -n "${NAMESPACE}" create secret generic telegram-news-recapper-secrets \
+            --from-literal=TELEGRAM_NEWS_RECAP_TAVILY_API_KEY="${TAVILY_API_KEY}" \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Apply cert-manager ClusterIssuer

@@ -55,3 +55,27 @@ repos:
         language: unsupported
         pass_filenames: false
         types: [python]
+
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --manifest-path recapper/Cargo.toml
+        require_serial: true
+        language: unsupported
+        pass_filenames: false
+        files: ^recapper/
+
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --manifest-path recapper/Cargo.toml --all-targets --locked -- -D warnings
+        require_serial: true
+        language: unsupported
+        pass_filenames: false
+        files: ^recapper/
+
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test --manifest-path recapper/Cargo.toml --locked
+        require_serial: true
+        language: unsupported
+        pass_filenames: false
+        files: ^recapper/
