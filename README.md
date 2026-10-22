@@ -1,17 +1,15 @@
 # Telegram News Feed Bot
 
-Self-hosted Telegram public channel feed aggregator. It discovers public `t.me/s/<channel>` posts, publishes structured post metadata through NATS, and reposts each source post into your direct chat with the bot. Text formatting, links, and preview-exposed images are preserved where Telegram's Bot API limits allow; multi-image posts are sent as one grouped album.
+Self-hosted Telegram public channel feed aggregator. It discovers public `t.me/s/<channel>` posts and reposts each source post into your direct chat with the bot. Text formatting, links, and preview-exposed images are preserved where Telegram's Bot API limits allow; multi-image posts are sent as one grouped album.
 
 It can also send AI news recaps: every few hours, an AI agent researches the web for the most important news on your topics and sends 3 to 5 short stories with source links in your language.
 
 ## Services
 
 - `bot`: Telegram command UI, webhook receiver, and Mini App API/frontend for managing source channels and polling interval.
-- `poller`: Periodically checks public Telegram web preview pages and publishes structured post metadata.
-- `dispatcher`: Consumes post metadata and reposts each source post as one Telegram bot delivery.
+- `feed`: A Rust service in `feed/` that periodically checks the public web preview pages of your channels and reposts each new post as one Telegram bot delivery, in order per channel.
 - `recapper`: A Rust service in `recapper/` that sends AI news recaps on schedule. It runs a [Rig](https://rig.rs) agent on `gpt-6-luna` with medium reasoning, signed in with your ChatGPT account, and searches the web through [Tavily](https://tavily.com).
 - `postgres`: Persistent source subscriptions, bot-chat destination, and per-channel committed cursors.
-- `nats`: Lightweight message bus between poller and dispatcher.
 
 ## Mini App
 
@@ -43,13 +41,12 @@ Web search needs a Tavily API key. CD reads it from the `TAVILY_API_KEY` GitHub 
 uv sync --group dev
 uv run alembic upgrade head
 uv run python -m src.entrypoints.bot.main
-uv run python -m src.entrypoints.poller.main
-uv run python -m src.entrypoints.dispatcher.main
-cargo run --manifest-path recapper/Cargo.toml -- login   # once, to sign in to ChatGPT
-cargo run --manifest-path recapper/Cargo.toml
+cargo run -p feed
+cargo run -p recapper -- login   # once, to sign in to ChatGPT
+cargo run -p recapper
 ```
 
-The local recapper reads the same `.env` file, needs `TELEGRAM_NEWS_RECAP_TAVILY_API_KEY`, and keeps its ChatGPT sign-in in `.recapper-auth/`.
+The Rust services read the same `.env` file. The local recapper also needs `TELEGRAM_NEWS_RECAP_TAVILY_API_KEY`, and keeps its ChatGPT sign-in in `.recapper-auth/`.
 
 The bot defaults to long polling locally with `TELEGRAM_NEWS_BOT_UPDATE_MODE=polling` and also serves the Mini App/API on `http://127.0.0.1:8000`. Production Kubernetes config sets `TELEGRAM_NEWS_BOT_UPDATE_MODE=webhook` and registers `https://newsfeedbot.iyazerski.dev/telegram/webhook` with Telegram. Telegram allows only one update mode per bot token; set `TELEGRAM_NEWS_BOT_DELETE_WEBHOOK_ON_POLLING_START=true` locally only when you intentionally want local polling to take over that token.
 
@@ -58,9 +55,9 @@ The bot defaults to long polling locally with `TELEGRAM_NEWS_BOT_UPDATE_MODE=pol
 The Python services:
 
 - `src/entrypoints` contains microservice runtimes, HTTP routes, commands, and process wiring.
-- `src/use_cases` contains workflows such as channel management, polling discovery, and post delivery.
+- `src/use_cases` contains workflows such as channel, settings, and recap management.
 - `src/domain` contains transport-free business concepts and decisions.
-- `src/infrastructure` contains database, NATS, Telegram Bot API, web-preview parsing, and other adapters.
+- `src/infrastructure` contains database, Telegram Bot API, and other adapters.
 - `tests/unit` mirrors the `src` package layout for focused unit coverage.
 
-The Rust recapper in `recapper/src` uses the same layers: `domain`, `infrastructure`, `use_cases`, and `entrypoints`, with unit tests next to the code. Alembic in the Python project owns the database schema that both share.
+The Rust services form one Cargo workspace. `feed/src` and `recapper/src` use the same layers: `domain`, `infrastructure`, `use_cases`, and `entrypoints`, with unit tests next to the code. `common/` holds what both share: settings loading, logging, shutdown, the database pool, and the Telegram Bot API client. Alembic in the Python project owns the database schema that all services share.

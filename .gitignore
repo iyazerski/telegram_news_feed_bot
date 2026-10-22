@@ -10,5 +10,5 @@ __pycache__/
 dist/
 build/
 logs/
-recapper/target/
+/target/
 .recapper-auth/

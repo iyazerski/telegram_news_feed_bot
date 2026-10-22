@@ -58,24 +58,24 @@ repos:
 
       - id: cargo-fmt
         name: cargo fmt
-        entry: cargo fmt --manifest-path recapper/Cargo.toml
+        entry: cargo fmt --all
         require_serial: true
         language: unsupported
         pass_filenames: false
-        files: ^recapper/
+        files: &rust-files ^(Cargo\.(toml|lock)|rustfmt\.toml|common/|feed/|recapper/)
 
       - id: cargo-clippy
         name: cargo clippy
-        entry: cargo clippy --manifest-path recapper/Cargo.toml --all-targets --locked -- -D warnings
+        entry: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
         require_serial: true
         language: unsupported
         pass_filenames: false
-        files: ^recapper/
+        files: *rust-files
 
       - id: cargo-test
         name: cargo test
-        entry: cargo test --manifest-path recapper/Cargo.toml --locked
+        entry: cargo test --workspace --locked
         require_serial: true
         language: unsupported
         pass_filenames: false
-        files: ^recapper/
+        files: *rust-files

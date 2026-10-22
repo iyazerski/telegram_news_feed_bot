@@ -1,3 +1,5 @@
+use common::telegram::html::{escape_attribute, escape_text};
+
 use crate::domain::recaps::RecapStory;
 
 /// Telegram's text message limit.
@@ -33,16 +35,6 @@ fn build_story(story: &RecapStory) -> String {
 
 fn join(header: &str, blocks: &[String]) -> String {
     std::iter::once(header.to_owned()).chain(blocks.iter().cloned()).collect::<Vec<_>>().join("\n\n")
-}
-
-/// Escape text content for Telegram HTML.
-fn escape_text(value: &str) -> String {
-    value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-}
-
-/// Escape a double-quoted HTML attribute value.
-fn escape_attribute(value: &str) -> String {
-    escape_text(value).replace('"', "&quot;").replace('\'', "&#x27;")
 }
 
 #[cfg(test)]

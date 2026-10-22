@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
+use common::config::{default_database_url, default_log_level, default_telegram_http_timeout_seconds};
 use serde::Deserialize;
 
 /// Recapper settings, read from `TELEGRAM_NEWS_*` variables like the Python services' `AppConfigs`.
@@ -38,9 +39,7 @@ pub struct Configs {
 impl Configs {
     /// Load settings from the environment, after a local `.env` file when there is one.
     pub fn load() -> Result<Self> {
-        // A missing .env is normal outside local development.
-        let _ = dotenvy::dotenv();
-        envy::prefixed("TELEGRAM_NEWS_").from_env::<Self>().context("invalid TELEGRAM_NEWS_* settings")
+        common::config::load()
     }
 
     /// Fail fast on settings the recap loop cannot run without.
@@ -54,34 +53,10 @@ impl Configs {
         Ok(())
     }
 
-    /// Return the database URL in the form sqlx accepts.
-    pub fn postgres_url(&self) -> String {
-        // The shared URL names SQLAlchemy's driver, as in `postgresql+psycopg://`, which sqlx does not understand.
-        match self.database_url.split_once("://") {
-            Some((scheme, rest)) => {
-                let scheme = scheme.split_once('+').map_or(scheme, |(base, _)| base);
-                format!("{scheme}://{rest}")
-            }
-            None => self.database_url.clone(),
-        }
-    }
-
     /// Return the Telegram Bot API request timeout.
     pub fn telegram_http_timeout(&self) -> Duration {
         Duration::from_secs_f64(self.telegram_http_timeout_seconds)
     }
-}
-
-fn default_database_url() -> String {
-    "postgresql+psycopg:///telegram_news_feed_bot".to_owned()
-}
-
-fn default_log_level() -> String {
-    "INFO".to_owned()
-}
-
-fn default_telegram_http_timeout_seconds() -> f64 {
-    20.0
 }
 
 fn default_recap_interval_seconds() -> i64 {
@@ -114,18 +89,4 @@ fn default_recap_timeout_seconds() -> u64 {
 
 fn default_recap_auth_dir() -> String {
     ".recapper-auth".to_owned()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn postgres_url_drops_the_sqlalchemy_driver() {
-        let mut configs: Configs = envy::prefixed("UNSET_PREFIX_").from_iter(Vec::new()).unwrap();
-        configs.database_url = "postgresql+psycopg://user:pass@db:5432/news".to_owned();
-        assert_eq!(configs.postgres_url(), "postgresql://user:pass@db:5432/news");
-        configs.database_url = "postgresql://db/news".to_owned();
-        assert_eq!(configs.postgres_url(), "postgresql://db/news");
-    }
 }

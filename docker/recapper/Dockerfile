@@ -2,10 +2,13 @@ FROM rust:1.99-slim-trixie AS builder
 
 WORKDIR /build
 
-COPY recapper/Cargo.toml recapper/Cargo.lock ./
-COPY recapper/src src
+# Cargo loads every workspace member, so the build copies all of them.
+COPY Cargo.toml Cargo.lock ./
+COPY common common
+COPY feed feed
+COPY recapper recapper
 
-RUN cargo build --release --locked
+RUN cargo build --release --locked -p recapper
 
 
 # Distroless keeps glibc and CA certificates for the TLS clients, without a shell or package manager.

@@ -71,22 +71,25 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: telegram-news-poller
+  name: telegram-news-feed
   labels:
     app.kubernetes.io/part-of: telegram_news_feed_bot
     app: telegram-news
-    component: poller
+    component: feed
 spec:
   replicas: 1
+  # Two feeds would read the same cursors and forward the same posts twice.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: telegram-news
-      component: poller
+      component: feed
   template:
     metadata:
       labels:
         app: telegram-news
-        component: poller
+        component: feed
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -97,8 +100,8 @@ spec:
       imagePullSecrets:
         - name: ghcr-pull-secret
       containers:
-        - name: poller
-          image: __POLLER_IMAGE__
+        - name: feed
+          image: __FEED_IMAGE__
           imagePullPolicy: Always
           envFrom:
             - configMapRef:
@@ -107,68 +110,15 @@ spec:
                 name: telegram-news-database-secrets
             - secretRef:
                 name: telegram-news-bot-secrets
+          # A first cycle over 80 posts with videos peaked at 43 MiB locally. The limit leaves room for one post's
+          # media, which TELEGRAM_NEWS_POST_MEDIA_MAX_BYTES caps at 50 MB.
           resources:
             requests:
               cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 500m
               memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-            runAsGroup: 10001
-            runAsNonRoot: true
-            runAsUser: 10001
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: telegram-news-dispatcher
-  labels:
-    app.kubernetes.io/part-of: telegram_news_feed_bot
-    app: telegram-news
-    component: dispatcher
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: telegram-news
-      component: dispatcher
-  template:
-    metadata:
-      labels:
-        app: telegram-news
-        component: dispatcher
-    spec:
-      automountServiceAccountToken: false
-      securityContext:
-        fsGroup: 10001
-        fsGroupChangePolicy: OnRootMismatch
-        seccompProfile:
-          type: RuntimeDefault
-      imagePullSecrets:
-        - name: ghcr-pull-secret
-      containers:
-        - name: dispatcher
-          image: __DISPATCHER_IMAGE__
-          imagePullPolicy: Always
-          envFrom:
-            - configMapRef:
-                name: telegram-news-config
-            - secretRef:
-                name: telegram-news-database-secrets
-            - secretRef:
-                name: telegram-news-bot-secrets
-          resources:
-            requests:
-              cpu: 10m
-              memory: 160Mi
-            limits:
-              cpu: 500m
-              memory: 320Mi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

@@ -47,9 +47,3 @@ class ChannelService:
                 .limit(limit)
             )
         )
-
-    def find_active_channel(self, session: Session, username: str) -> SourceChannel | None:
-        """
-        Return an active source channel by normalized username, or None when it is missing or removed.
-        """
-        return session.scalar(select(SourceChannel).where(SourceChannel.username == username, SourceChannel.active))

@@ -2,13 +2,13 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
-use sqlx::postgres::{PgPool, PgPoolOptions};
+use common::database::{DESTINATION_CHAT_ID_KEY, connect_lazy};
+use sqlx::postgres::PgPool;
 use sqlx::{Executor, Postgres, Row};
 
 use crate::domain::recaps::{RecapSettings, RecapStory};
 
 // Setting keys shared with the Python services' SettingsService.
-const DESTINATION_CHAT_ID_KEY: &str = "destination_chat_id";
 const RECAP_TOPICS_KEY: &str = "recap_topics";
 const RECAP_LANGUAGE_KEY: &str = "recap_language";
 const RECAP_INTERVAL_SECONDS_KEY: &str = "recap_interval_seconds";
@@ -32,9 +32,8 @@ pub struct PostgresRecapStore {
 
 impl PostgresRecapStore {
     /// Create a store over a lazily connected pool, so the service starts while the database is down.
-    pub fn connect_lazy(url: &str) -> Result<Self> {
-        let pool = PgPoolOptions::new().max_connections(MAX_CONNECTIONS).connect_lazy(url)?;
-        Ok(Self { pool })
+    pub fn connect_lazy(database_url: &str) -> Result<Self> {
+        Ok(Self { pool: connect_lazy(database_url, MAX_CONNECTIONS)? })
     }
 
     /// Read the recap settings, next run time, and destination chat.

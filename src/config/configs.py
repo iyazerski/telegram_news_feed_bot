@@ -7,9 +7,6 @@ class AppConfigs(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="TELEGRAM_NEWS_", extra="ignore")
 
     database_url: str = "postgresql+psycopg:///telegram_news_feed_bot"
-    nats_url: str = "nats://127.0.0.1:4222"
-    nats_subject: str = "telegram.posts.discovered.v2"
-    nats_queue: str = "telegram-dispatchers"
     bot_token: str = ""
     admin_user_id: str = ""
     log_level: str = "INFO"
@@ -24,8 +21,7 @@ class AppConfigs(BaseSettings):
     mini_app_url: str = ""
     mini_app_auth_max_age_seconds: int = 86_400
     bot_configure_menu_button: bool = True
-    poller_http_timeout_seconds: float = 10.0
-    dispatcher_post_media_max_bytes: int = 50_000_000
+    # The Rust feed reads the same variable, so both agree on the interval before the first save.
     default_poll_interval_seconds: int = 300
     telegram_http_timeout_seconds: float = 20.0
     telegram_get_updates_timeout_seconds: int = 50

@@ -16,7 +16,7 @@ use crate::config::Configs;
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let configs = Configs::load()?;
-    entrypoints::configure_logging(&configs.log_level);
+    common::runtime::configure_logging(&configs.log_level);
     match std::env::args().nth(1).as_deref() {
         None => entrypoints::runtime::run_forever(configs).await,
         Some("login") => infrastructure::ai::researcher::sign_in(&configs.recap_auth_dir).await,

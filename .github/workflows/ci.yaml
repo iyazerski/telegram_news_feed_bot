@@ -26,8 +26,6 @@ jobs:
 
       - name: Cache Rust builds
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: recapper
 
       - name: Install development dependencies
         run: uv sync --locked --group dev

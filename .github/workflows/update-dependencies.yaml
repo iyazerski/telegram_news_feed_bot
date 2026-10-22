@@ -28,13 +28,13 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Update recapper lockfile
-        run: cargo update --manifest-path recapper/Cargo.toml
+      - name: Update Cargo lockfile
+        run: cargo update
 
       - name: Check for updates
         id: check
         run: |
-          if git diff --quiet uv.lock recapper/Cargo.lock; then
+          if git diff --quiet uv.lock Cargo.lock; then
             echo "No dependency updates found."
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
           else
@@ -54,7 +54,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add uv.lock recapper/Cargo.lock
+          git add uv.lock Cargo.lock
           git commit -m "chore: update dependencies"
           git push
           gh workflow run ci.yaml --ref main

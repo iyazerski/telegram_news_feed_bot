@@ -1,5 +1,6 @@
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
+use common::telegram::bot_api::{TelegramBotApi, TelegramError};
 use tracing::{error, info, warn};
 
 use crate::config::Configs;
@@ -7,7 +8,6 @@ use crate::domain::recaps::{RecapSettings, RecapStory, select_new_stories};
 use crate::infrastructure::ai::prompt::{build_news_recap_prompt, parse_news_recap_output};
 use crate::infrastructure::ai::researcher::{ChatGptResearcher, ResearchError};
 use crate::infrastructure::database::{PostgresRecapStore, StoredRecap};
-use crate::infrastructure::telegram::bot_api::{TelegramBotApi, TelegramError};
 use crate::infrastructure::telegram::recap_formatter::build_recap_message;
 
 // Short intervals would only see a few hours of news, so research always covers at least a day.

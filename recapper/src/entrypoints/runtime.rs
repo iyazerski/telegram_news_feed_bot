@@ -2,19 +2,20 @@ use std::time::Duration;
 
 use anyhow::Result;
 use chrono::Utc;
+use common::runtime::shutdown_signal;
+use common::telegram::bot_api::TelegramBotApi;
 use tracing::{error, info};
 
 use crate::config::Configs;
 use crate::infrastructure::ai::researcher::ChatGptResearcher;
 use crate::infrastructure::database::PostgresRecapStore;
-use crate::infrastructure::telegram::bot_api::TelegramBotApi;
 use crate::use_cases::generate_recaps::{NewsRecapService, RecapPolicy};
 
 /// Wire the recap service and check its schedule until the process is told to stop.
 pub async fn run_forever(configs: Configs) -> Result<()> {
     configs.require_service_settings()?;
     let recaps = NewsRecapService::new(
-        PostgresRecapStore::connect_lazy(&configs.postgres_url())?,
+        PostgresRecapStore::connect_lazy(&configs.database_url)?,
         ChatGptResearcher::new(
             &configs.recap_auth_dir,
             &configs.recap_tavily_api_key,
@@ -46,20 +47,4 @@ pub async fn run_forever(configs: Configs) -> Result<()> {
     }
     info!("Recapper stopped");
     Ok(())
-}
-
-/// Resolve on SIGTERM, which Kubernetes sends before it kills the pod, or on Ctrl-C locally.
-async fn shutdown_signal() {
-    let mut terminate = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-        Ok(terminate) => terminate,
-        Err(signal_error) => {
-            error!("Could not listen for SIGTERM: {signal_error}");
-            let _ = tokio::signal::ctrl_c().await;
-            return;
-        }
-    };
-    tokio::select! {
-        _ = terminate.recv() => {}
-        _ = tokio::signal::ctrl_c() => {}
-    }
 }

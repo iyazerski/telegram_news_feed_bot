@@ -1,32 +1,24 @@
 [package]
 name = "recapper"
-version = "0.1.0"
-edition = "2024"
-rust-version = "1.97.1"
 description = "AI news recap microservice for the Telegram News Feed Bot"
-license = "LicenseRef-Proprietary"
-publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
 
 [dependencies]
-anyhow = "1"
-chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
-dotenvy = "0.15"
-envy = "0.4"
-futures = "0.3"
-html2text = "0.15"
-# Rig is the agent harness; its minor versions break APIs, so updates stay within 0.45.
-reqwest = { version = "0.13", default-features = false, features = ["brotli", "gzip", "json", "rustls"] }
-rig = "0.45"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sqlx = { version = "0.8", default-features = false, features = ["chrono", "postgres", "runtime-tokio"] }
-thiserror = "2"
-tokio = { version = "1", features = ["macros", "rt", "signal", "time"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-url = "2"
-
-[profile.release]
-codegen-units = 1
-lto = true
-strip = true
+anyhow.workspace = true
+chrono.workspace = true
+common.workspace = true
+futures.workspace = true
+html2text.workspace = true
+reqwest.workspace = true
+rig.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
