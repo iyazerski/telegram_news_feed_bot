@@ -4,15 +4,10 @@ use crate::domain::recaps::RecapStory;
 
 /// Telegram's text message limit.
 const TEXT_MESSAGE_LIMIT: usize = 4096;
-pub const EMPTY_RECAP_TEXT: &str = "No important new stories for your topics since the last recap.";
 
 /// Build one Telegram HTML recap message, dropping trailing stories that exceed the length limit.
 pub fn build_recap_message(stories: &[RecapStory], topics: &[String]) -> String {
     let header = format!("🗞 <b>News recap</b>\n<i>{}</i>", escape_text(&topics.join(" · ")));
-    if stories.is_empty() {
-        return format!("{header}\n\n{EMPTY_RECAP_TEXT}");
-    }
-
     // Telegram counts visible text, which is never longer than the HTML, so this bound is safe.
     let mut message = header;
     let mut length = message.chars().count();
@@ -66,9 +61,7 @@ mod tests {
     }
 
     #[test]
-    fn build_message_reports_empty_recaps_and_drops_overflowing_stories() {
-        assert!(build_recap_message(&[], &["AI".to_owned()]).ends_with(EMPTY_RECAP_TEXT));
-
+    fn build_message_drops_overflowing_stories() {
         let stories: Vec<RecapStory> = (0..5)
             .map(|index| RecapStory {
                 emoji: "📰".to_owned(),

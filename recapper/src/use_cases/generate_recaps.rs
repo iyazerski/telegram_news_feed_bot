@@ -133,6 +133,11 @@ impl<S: RecapStore, R: RecapResearcher, M: RecapMessenger> NewsRecapService<S, R
 
         let sent_urls = due.sent_stories.iter().map(|(_, url)| url.as_str());
         let stories = select_new_stories(stories, sent_urls, self.policy.story_count);
+        if stories.is_empty() {
+            // Nothing new is worth a message, so stay quiet until the next regular recap.
+            info!("No new stories for the recap; skipping it");
+            return self.store.schedule(now + interval).await;
+        }
         let message = build_recap_message(&stories, &due.settings.topics);
         if let Err(delivery_error) = self.messenger.send_html_message(&due.destination, &message, true).await {
             if delivery_error.is_retryable() {
@@ -366,6 +371,19 @@ mod tests {
         assert!(!message.contains("https://news.example/old"));
         assert_eq!(recaps.store.sent_urls(), ["https://news.example/old", "https://news.example/new"]);
         assert_eq!(recaps.store.next_run_at(), Some(now() + INTERVAL));
+    }
+
+    #[tokio::test]
+    async fn recap_without_new_stories_is_skipped_until_next_interval() {
+        // Empty replies and replies with only already sent stories send nothing.
+        for output in [build_output(&[]), build_output(&["https://news.example/old"])] {
+            let recaps = service(FakeResearcher::replying(Ok(output)), FakeMessenger::default());
+
+            recaps.run_if_due(now()).await.unwrap();
+
+            assert!(recaps.messenger.html_messages.lock().unwrap().is_empty());
+            assert_eq!(recaps.store.next_run_at(), Some(now() + INTERVAL));
+        }
     }
 
     #[tokio::test]
