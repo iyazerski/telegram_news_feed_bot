@@ -44,8 +44,12 @@ fn is_tracking_key(key: &str) -> bool {
 }
 
 /// Keep up to the limit of stories whose articles were neither sent before nor repeated in this recap.
-pub fn select_new_stories(stories: Vec<RecapStory>, sent_urls: &[String], limit: usize) -> Vec<RecapStory> {
-    let mut seen: HashSet<String> = sent_urls.iter().map(|url| normalize_story_url(url)).collect();
+pub fn select_new_stories<'a>(
+    stories: Vec<RecapStory>,
+    sent_urls: impl IntoIterator<Item = &'a str>,
+    limit: usize,
+) -> Vec<RecapStory> {
+    let mut seen: HashSet<String> = sent_urls.into_iter().map(normalize_story_url).collect();
     stories.into_iter().filter(|story| seen.insert(normalize_story_url(&story.url))).take(limit).collect()
 }
 
@@ -74,7 +78,7 @@ mod tests {
             build_story("https://news.example/d"),
         ];
 
-        let selected = select_new_stories(stories, &["https://news.example/a".to_owned()], 2);
+        let selected = select_new_stories(stories, ["https://news.example/a"], 2);
 
         let urls: Vec<&str> = selected.iter().map(|story| story.url.as_str()).collect();
         assert_eq!(urls, ["https://news.example/b", "https://news.example/c?id=7"]);

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use common::runtime::shutdown_signal;
+use common::runtime::run_until_shutdown;
 use common::telegram::bot_api::TelegramBotApi;
 use tracing::{error, info};
 
@@ -13,7 +13,6 @@ use crate::use_cases::forward_posts::PostForwardingService;
 
 /// Wire the forwarding service and run its cycles until the process is told to stop.
 pub async fn run_forever(configs: Configs) -> Result<()> {
-    configs.require_service_settings()?;
     let forwarding = PostForwardingService::new(
         PostgresFeedStore::connect_lazy(&configs.database_url)?,
         TelegramWebPreviewClient::new(configs.preview_http_timeout())?,
@@ -24,23 +23,15 @@ pub async fn run_forever(configs: Configs) -> Result<()> {
     let default_interval = Duration::from_secs(configs.default_poll_interval_seconds);
 
     info!("Feed started");
-    let shutdown = shutdown_signal();
-    tokio::pin!(shutdown);
-    loop {
-        let interval = tokio::select! {
-            // A post in delivery stops with the process; its cursor is not committed, so the next start resends it.
-            () = &mut shutdown => break,
-            result = forwarding.run_cycle() => result.unwrap_or_else(|cycle_error| {
-                // Keep the service alive through transient database failures.
-                error!("Feed cycle failed; retrying after the default interval: {cycle_error:#}");
-                default_interval
-            }),
-        };
-        tokio::select! {
-            () = &mut shutdown => break,
-            () = tokio::time::sleep(interval) => {}
-        }
-    }
+    // A post in delivery stops with the process; its cursor is not committed, so the next start resends it.
+    run_until_shutdown(|| async {
+        forwarding.run_cycle().await.unwrap_or_else(|cycle_error| {
+            // Keep the service alive through transient database failures.
+            error!("Feed cycle failed; retrying after the default interval: {cycle_error:#}");
+            default_interval
+        })
+    })
+    .await;
     info!("Feed stopped");
     Ok(())
 }

@@ -33,10 +33,17 @@ struct InitDataUser {
     id: i64,
 }
 
+/// Return the key that Telegram signs a bot's Mini App init data with, which depends only on the bot token.
+pub fn init_data_secret_key(bot_token: &str) -> [u8; 32] {
+    let mut mac = hmac(b"WebAppData");
+    mac.update(bot_token.as_bytes());
+    mac.finalize().into_bytes().into()
+}
+
 /// Return the ID of the Telegram user in signed Mini App init data that is at most `max_age_seconds` old.
 pub fn validate_init_data(
     init_data: &str,
-    bot_token: &str,
+    secret_key: &[u8; 32],
     max_age_seconds: i64,
     now: DateTime<Utc>,
 ) -> Result<i64, InitDataError> {
@@ -46,11 +53,16 @@ pub fn validate_init_data(
     let auth_date = fields.get("auth_date").ok_or(InitDataError::MissingAuthDate)?;
     let user = fields.get("user").ok_or(InitDataError::MissingUser)?;
 
-    // Telegram signs the sorted field list with a secret derived from the bot token.
-    let data_check_string: Vec<String> = fields.iter().map(|(key, value)| format!("{key}={value}")).collect();
-    let secret = hmac_sha256(b"WebAppData", bot_token.as_bytes())?;
-    let mut mac = HmacSha256::new_from_slice(&secret).map_err(|_| InitDataError::InvalidSignature)?;
-    mac.update(data_check_string.join("\n").as_bytes());
+    // Telegram signs the sorted `key=value` lines, joined by newlines.
+    let mut mac = hmac(secret_key);
+    for (index, (key, value)) in fields.iter().enumerate() {
+        if index > 0 {
+            mac.update(b"\n");
+        }
+        mac.update(key.as_bytes());
+        mac.update(b"=");
+        mac.update(value.as_bytes());
+    }
     let received_hash = hex::decode(received_hash).map_err(|_| InitDataError::InvalidSignature)?;
     // verify_slice compares in constant time, so the answer time tells nothing about the right signature.
     mac.verify_slice(&received_hash).map_err(|_| InitDataError::InvalidSignature)?;
@@ -63,10 +75,8 @@ pub fn validate_init_data(
     Ok(user.id)
 }
 
-fn hmac_sha256(key: &[u8], message: &[u8]) -> Result<Vec<u8>, InitDataError> {
-    let mut mac = HmacSha256::new_from_slice(key).map_err(|_| InitDataError::InvalidSignature)?;
-    mac.update(message);
-    Ok(mac.finalize().into_bytes().to_vec())
+fn hmac(key: &[u8]) -> HmacSha256 {
+    HmacSha256::new_from_slice(key).expect("HMAC accepts keys of any length")
 }
 
 #[cfg(test)]
@@ -80,8 +90,9 @@ pub mod tests {
         let user = format!(r#"{{"id": {user_id}, "first_name": "Test"}}"#);
         let fields = [("auth_date", auth_date.to_string()), ("query_id", "AAE".to_owned()), ("user", user)];
         let data_check_string: Vec<String> = fields.iter().map(|(key, value)| format!("{key}={value}")).collect();
-        let secret = hmac_sha256(b"WebAppData", bot_token.as_bytes()).unwrap();
-        let hash = hex::encode(hmac_sha256(&secret, data_check_string.join("\n").as_bytes()).unwrap());
+        let mut mac = hmac(&init_data_secret_key(bot_token));
+        mac.update(data_check_string.join("\n").as_bytes());
+        let hash = hex::encode(mac.finalize().into_bytes());
         url::form_urlencoded::Serializer::new(String::new()).extend_pairs(fields).append_pair("hash", &hash).finish()
     }
 
@@ -89,13 +100,17 @@ pub mod tests {
         DateTime::from_timestamp(1_800_000_000, 0).unwrap()
     }
 
+    fn validate(init_data: &str) -> Result<i64, InitDataError> {
+        validate_init_data(init_data, &init_data_secret_key(BOT_TOKEN), 3_600, now())
+    }
+
     #[test]
     fn signed_init_data_names_its_user_until_it_expires() {
         let fresh = signed_init_data(BOT_TOKEN, 42, now().timestamp() - 60);
         let old = signed_init_data(BOT_TOKEN, 42, now().timestamp() - 3_601);
 
-        assert_eq!(validate_init_data(&fresh, BOT_TOKEN, 3_600, now()), Ok(42));
-        assert_eq!(validate_init_data(&old, BOT_TOKEN, 3_600, now()), Err(InitDataError::Expired));
+        assert_eq!(validate(&fresh), Ok(42));
+        assert_eq!(validate(&old), Err(InitDataError::Expired));
     }
 
     #[test]
@@ -110,7 +125,7 @@ pub mod tests {
             (unsigned.as_str(), InitDataError::MissingHash),
             ("hash=00&user=%7B%7D", InitDataError::MissingAuthDate),
         ] {
-            assert_eq!(validate_init_data(init_data, BOT_TOKEN, 3_600, now()), Err(error), "{init_data}");
+            assert_eq!(validate(init_data), Err(error), "{init_data}");
         }
     }
 }

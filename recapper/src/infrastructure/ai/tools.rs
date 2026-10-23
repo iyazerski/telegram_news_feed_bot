@@ -9,8 +9,10 @@ use serde_json::json;
 
 const TAVILY_SEARCH_URL: &str = "https://api.tavily.com/search";
 const SEARCH_RESULTS_PER_QUERY: u8 = 5;
-// Pages beyond this size waste context; the model only needs dates and key facts.
-const MAX_PAGE_CHARS: usize = 20_000;
+// Larger pages are cut before conversion, so a huge page cannot exhaust memory or stall html2text.
+const MAX_PAGE_HTML_BYTES: usize = 2_000_000;
+// Page text beyond this size wastes context; the model only needs dates and key facts.
+const MAX_PAGE_TEXT_BYTES: usize = 20_000;
 const PAGE_TEXT_WIDTH: usize = 120;
 const TOOL_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -50,14 +52,18 @@ pub struct ResearchTools {
     successful_searches: Arc<AtomicUsize>,
 }
 
+/// Create the HTTP client that the research tools search and read pages with.
+pub fn research_http_client() -> reqwest::Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(TOOL_HTTP_TIMEOUT)
+        .user_agent("Mozilla/5.0 (compatible; telegram-news-recapper/0.1)")
+        .build()
+}
+
 impl ResearchTools {
     /// Create the tools for one run, with a fresh search count.
-    pub fn new(tavily_api_key: &str) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
-            .timeout(TOOL_HTTP_TIMEOUT)
-            .user_agent("Mozilla/5.0 (compatible; telegram-news-recapper/0.1)")
-            .build()?;
-        Ok(Self { http, tavily_api_key: tavily_api_key.into(), successful_searches: Arc::default() })
+    pub fn new(http: reqwest::Client, tavily_api_key: Arc<str>) -> Self {
+        Self { http, tavily_api_key, successful_searches: Arc::default() }
     }
 
     /// Return how many search queries returned results in this run.
@@ -171,16 +177,24 @@ impl ResearchTools {
         if !(url.starts_with("https://") || url.starts_with("http://")) {
             return Err(ToolExecutionError::invalid_args(format!("{url} is not an http(s) URL")));
         }
-        let response =
-            self.http.get(url).send().await.map_err(|error| ToolExecutionError::network(error.to_string()))?;
+        let network_error = |error: reqwest::Error| ToolExecutionError::network(error.to_string());
+        let mut response = self.http.get(url).send().await.map_err(network_error)?;
         let status = response.status();
         if !status.is_success() {
             return Err(ToolExecutionError::provider(format!("{url} answered {status}")));
         }
-        let html = response.text().await.map_err(|error| ToolExecutionError::network(error.to_string()))?;
-        let mut text = html2text::from_read(html.as_bytes(), PAGE_TEXT_WIDTH).unwrap_or(html);
-        if text.len() > MAX_PAGE_CHARS {
-            text.truncate(text.floor_char_boundary(MAX_PAGE_CHARS));
+        let mut html = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(network_error)? {
+            html.extend_from_slice(&chunk);
+            if html.len() >= MAX_PAGE_HTML_BYTES {
+                html.truncate(MAX_PAGE_HTML_BYTES);
+                break;
+            }
+        }
+        let mut text = html2text::from_read(html.as_slice(), PAGE_TEXT_WIDTH)
+            .unwrap_or_else(|_| String::from_utf8_lossy(&html).into_owned());
+        if text.len() > MAX_PAGE_TEXT_BYTES {
+            text.truncate(text.floor_char_boundary(MAX_PAGE_TEXT_BYTES));
             text.push_str("\n[truncated]");
         }
         Ok(text)

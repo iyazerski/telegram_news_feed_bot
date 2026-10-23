@@ -3,6 +3,8 @@ use std::time::Duration;
 use common::telegram::bot_api::TelegramUpload;
 use reqwest::header::CONTENT_TYPE;
 
+use crate::use_cases::forward_posts::MediaSource;
+
 // Telegram albums hold at most 10 items.
 const MEDIA_GROUP_LIMIT: usize = 10;
 // The media types the Bot API accepts as photos and videos, with their file extensions.
@@ -30,9 +32,10 @@ impl TelegramMediaDownloader {
         let http = reqwest::Client::builder().connect_timeout(timeout).read_timeout(timeout).build()?;
         Ok(Self { http, max_bytes })
     }
+}
 
-    /// Download up to an album's worth of media and prepare it as Bot API uploads.
-    pub async fn download_media(&self, media_urls: &[String]) -> Result<Vec<TelegramUpload>, MediaError> {
+impl MediaSource for TelegramMediaDownloader {
+    async fn download_media(&self, media_urls: &[String]) -> Result<Vec<TelegramUpload>, MediaError> {
         let mut media = Vec::new();
         let mut downloaded_bytes = 0;
         for (index, media_url) in media_urls.iter().take(MEDIA_GROUP_LIMIT).enumerate() {
@@ -48,7 +51,9 @@ impl TelegramMediaDownloader {
         }
         Ok(media)
     }
+}
 
+impl TelegramMediaDownloader {
     /// Download one media file of at most `max_bytes`, and return it with its content type and file extension.
     async fn download_file(
         &self,

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::error;
 
-use crate::entrypoints::http::auth::{InitDataError, validate_init_data};
+use crate::entrypoints::http::auth::{InitDataError, init_data_secret_key, validate_init_data};
 use crate::use_cases::ManageError;
 use crate::use_cases::manage_feed::{ChannelPage, FeedService, FeedStore};
 use crate::use_cases::manage_recaps::{RecapService, RecapStore};
@@ -26,9 +26,16 @@ const MAX_LANGUAGE_CHARS: usize = 40;
 
 /// Who may use the Mini App API: the admin, proven by init data that the bot token signed.
 pub struct MiniAppAuth {
-    pub bot_token: String,
-    pub admin_user_id: i64,
-    pub max_age_seconds: i64,
+    secret_key: [u8; 32],
+    admin_user_id: i64,
+    max_age_seconds: i64,
+}
+
+impl MiniAppAuth {
+    /// Accept init data that the bot signed for the admin at most `max_age_seconds` ago.
+    pub fn new(bot_token: &str, admin_user_id: i64, max_age_seconds: i64) -> Self {
+        Self { secret_key: init_data_secret_key(bot_token), admin_user_id, max_age_seconds }
+    }
 }
 
 /// The Mini App API's use cases and access rule.
@@ -124,7 +131,7 @@ impl<S: Send + Sync> FromRequestParts<Arc<MiniApp<S>>> for Admin {
         let auth = &app.auth;
         let user_id = validate_init_data(
             init_data.ok_or(InitDataError::Missing)?,
-            &auth.bot_token,
+            &auth.secret_key,
             auth.max_age_seconds,
             Utc::now(),
         )?;
@@ -301,11 +308,10 @@ async fn get_state<S: FeedStore + RecapStore>(
     State(app): State<Arc<MiniApp<S>>>,
     _admin: Admin,
 ) -> Result<Json<AppStateResponse>, ApiError> {
-    Ok(Json(AppStateResponse {
-        poll_interval_seconds: app.feed.poll_interval_seconds().await?,
-        page: app.feed.channel_page("").await?.into(),
-        recap: app.recaps.schedule().await?.into(),
-    }))
+    // The pool has room for all three queries at once.
+    let (poll_interval_seconds, page, recap) =
+        tokio::try_join!(app.feed.poll_interval_seconds(), app.feed.channel_page(""), app.recaps.schedule())?;
+    Ok(Json(AppStateResponse { poll_interval_seconds, page: page.into(), recap: recap.into() }))
 }
 
 async fn get_channels<S: FeedStore + RecapStore>(
@@ -387,11 +393,10 @@ mod tests {
 
     impl Client {
         fn new(store: &Arc<FakeStore>) -> Self {
-            let auth = MiniAppAuth { bot_token: BOT_TOKEN.to_owned(), admin_user_id: ADMIN_ID, max_age_seconds: 3_600 };
             let app = MiniApp::new(
                 FeedService::new(Arc::clone(store), 300),
                 RecapService::new(Arc::clone(store), 21_600),
-                auth,
+                MiniAppAuth::new(BOT_TOKEN, ADMIN_ID, 3_600),
             );
             Self { router: app.into_router(), init_data: signed_init_data(BOT_TOKEN, ADMIN_ID, Utc::now().timestamp()) }
         }

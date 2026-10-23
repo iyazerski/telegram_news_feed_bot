@@ -3,14 +3,18 @@ use scraper::Html;
 
 use crate::domain::posts::DiscoveredPost;
 
-// Telegram's limits, counted here in characters of visible text.
+// Telegram's limits, which it counts in UTF-16 code units of visible text, so an emoji counts twice.
 const MEDIA_CAPTION_LIMIT: usize = 1024;
 const TEXT_MESSAGE_LIMIT: usize = 4096;
 
-/// Build a media caption with the whole post, or only the channel header when the post does not fit.
-pub fn build_media_caption(post: &DiscoveredPost) -> String {
+/// Build a media caption with the whole post, or only the channel header followed by text messages with the body
+/// when the post does not fit.
+pub fn build_media_messages(post: &DiscoveredPost) -> (String, Vec<String>) {
     let message = build_message_text(post);
-    if visible_length(&message) <= MEDIA_CAPTION_LIMIT { message } else { build_channel_header(post) }
+    if visible_length(&message) <= MEDIA_CAPTION_LIMIT {
+        return (message, Vec::new());
+    }
+    (build_channel_header(post), build_body_messages(post))
 }
 
 /// Build one or more Telegram HTML messages that together hold the whole post.
@@ -24,24 +28,25 @@ pub fn build_text_messages(post: &DiscoveredPost) -> Vec<String> {
     // Channel names have at most 128 characters, so the header always leaves room in the first message.
     let header = build_channel_header(post);
     let body = html_to_plain_text(&build_message_body(post));
-    let (first_body, rest) = split_at_char(&body, TEXT_MESSAGE_LIMIT.saturating_sub(visible_length(&header) + 2));
+    let header_length = utf16_length(&post.channel_display_name);
+    let (first_body, rest) = split_at_utf16(&body, TEXT_MESSAGE_LIMIT.saturating_sub(header_length + 2));
     let mut messages = vec![format!("{header}\n\n{}", escape_text(first_body))];
     messages.extend(split_plain_text(rest, TEXT_MESSAGE_LIMIT).into_iter().map(escape_text));
     messages
 }
 
 /// Build follow-up messages for a post whose caption held only the channel header.
-pub fn build_body_messages(post: &DiscoveredPost) -> Vec<String> {
+fn build_body_messages(post: &DiscoveredPost) -> Vec<String> {
     let body = build_message_body(post);
     let body_text = html_to_plain_text(&body);
-    if body_text.chars().count() <= TEXT_MESSAGE_LIMIT {
+    if utf16_length(&body_text) <= TEXT_MESSAGE_LIMIT {
         return vec![body];
     }
     split_plain_text(&body_text, TEXT_MESSAGE_LIMIT).into_iter().map(escape_text).collect()
 }
 
 /// Build the whole repost: the channel header, then the body.
-pub fn build_message_text(post: &DiscoveredPost) -> String {
+fn build_message_text(post: &DiscoveredPost) -> String {
     format!("{}\n\n{}", build_channel_header(post), build_message_body(post))
 }
 
@@ -65,24 +70,36 @@ pub fn html_to_plain_text(html: &str) -> String {
 }
 
 fn visible_length(html: &str) -> usize {
-    html_to_plain_text(html).chars().count()
+    utf16_length(&html_to_plain_text(html))
 }
 
-/// Split text into chunks of at most `limit` characters.
+fn utf16_length(text: &str) -> usize {
+    text.encode_utf16().count()
+}
+
+/// Split text into chunks of at most `limit` UTF-16 code units.
 fn split_plain_text(text: &str, limit: usize) -> Vec<&str> {
     let mut chunks = Vec::new();
     let mut rest = text;
     while !rest.is_empty() {
-        let (chunk, tail) = split_at_char(rest, limit);
+        let (chunk, tail) = split_at_utf16(rest, limit);
         chunks.push(chunk);
         rest = tail;
     }
     chunks
 }
 
-/// Split text after its first `count` characters.
-fn split_at_char(text: &str, count: usize) -> (&str, &str) {
-    text.split_at(text.char_indices().nth(count).map_or(text.len(), |(index, _)| index))
+/// Split text after the most characters that fit in `limit` UTF-16 code units, never inside a character.
+fn split_at_utf16(text: &str, limit: usize) -> (&str, &str) {
+    let mut length = 0;
+    let index = text
+        .char_indices()
+        .find(|(_, character)| {
+            length += character.len_utf16();
+            length > limit
+        })
+        .map_or(text.len(), |(index, _)| index);
+    text.split_at(index)
 }
 
 #[cfg(test)]
@@ -103,14 +120,15 @@ mod tests {
 
     #[test]
     fn oversized_text_is_split_without_losing_characters() {
-        let body = "я".repeat(5000);
+        // Each emoji is two UTF-16 code units, so 2,500 of them exceed the limit that 2,500 characters would not.
+        for body in ["я".repeat(5000), "😀".repeat(2500)] {
+            let messages = build_text_messages(&post(&body));
 
-        let messages = build_text_messages(&post(&body));
-
-        let plain: Vec<String> = messages.iter().map(|message| html_to_plain_text(message)).collect();
-        assert_eq!(plain.len(), 2);
-        assert_eq!(plain.concat(), format!("Example News\n\n{body}"));
-        assert!(plain.iter().all(|message| message.chars().count() <= TEXT_MESSAGE_LIMIT));
+            let plain: Vec<String> = messages.iter().map(|message| html_to_plain_text(message)).collect();
+            assert_eq!(plain.len(), 2);
+            assert_eq!(plain.concat(), format!("Example News\n\n{body}"));
+            assert!(plain.iter().all(|message| utf16_length(message) <= TEXT_MESSAGE_LIMIT));
+        }
     }
 
     #[test]

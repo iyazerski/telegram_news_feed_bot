@@ -1,4 +1,5 @@
 use std::io::IsTerminal;
+use std::time::Duration;
 
 use tracing::error;
 use tracing_subscriber::EnvFilter;
@@ -26,5 +27,22 @@ pub async fn shutdown_signal() {
     tokio::select! {
         _ = terminate.recv() => {}
         _ = tokio::signal::ctrl_c() => {}
+    }
+}
+
+/// Run `cycle` and sleep for the pause it returns, again and again, until the shutdown signal, which also stops a
+/// cycle in progress.
+pub async fn run_until_shutdown<F: Future<Output = Duration>>(mut cycle: impl FnMut() -> F) {
+    let shutdown = shutdown_signal();
+    tokio::pin!(shutdown);
+    loop {
+        let pause = tokio::select! {
+            () = &mut shutdown => return,
+            pause = cycle() => pause,
+        };
+        tokio::select! {
+            () = &mut shutdown => return,
+            () = tokio::time::sleep(pause) => {}
+        }
     }
 }

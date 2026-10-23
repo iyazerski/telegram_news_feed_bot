@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use rig::completion::{Effort, GenerationOptions};
@@ -7,7 +8,8 @@ use rig::providers::chatgpt;
 use rig::providers::chatgpt::auth::{AuthError, AuthSource, Authenticator, DeviceCodeHandler, FileTokenStore};
 use rig::providers::openai::OpenAIConfig;
 
-use crate::infrastructure::ai::tools::ResearchTools;
+use crate::infrastructure::ai::tools::{ResearchTools, research_http_client};
+use crate::use_cases::generate_recaps::RecapResearcher;
 
 /// The recap model, fixed for every recap.
 pub const RECAP_MODEL: &str = "gpt-6-luna";
@@ -33,24 +35,28 @@ pub enum ResearchError {
 pub struct ChatGptResearcher {
     authenticator: Authenticator,
     http: DynHttpClient,
-    tavily_api_key: String,
+    /// The search and page client, shared by every run so its connections are reused.
+    tools_http: reqwest::Client,
+    tavily_api_key: Arc<str>,
     timeout: Duration,
 }
 
 impl ChatGptResearcher {
     /// Create a researcher that reads and refreshes the ChatGPT sign-in kept in `auth_dir`.
-    pub fn new(auth_dir: &str, tavily_api_key: &str, timeout: Duration) -> Self {
-        Self {
+    pub fn new(auth_dir: &str, tavily_api_key: &str, timeout: Duration) -> anyhow::Result<Self> {
+        Ok(Self {
             // The service never starts a device flow itself; `recapper login` signs in.
             authenticator: build_authenticator(auth_dir, false),
             http: rig::rig_reqwest::shared(),
-            tavily_api_key: tavily_api_key.to_owned(),
+            tools_http: research_http_client()?,
+            tavily_api_key: tavily_api_key.into(),
             timeout,
-        }
+        })
     }
+}
 
-    /// Run the recap prompt through the agent and return its final reply.
-    pub async fn research(&self, prompt: &str) -> Result<String, ResearchError> {
+impl RecapResearcher for ChatGptResearcher {
+    async fn research(&self, prompt: &str) -> Result<String, ResearchError> {
         let context = self
             .authenticator
             .auth_context(&self.http)
@@ -60,8 +66,7 @@ impl ChatGptResearcher {
         if let Some(account_id) = context.account_id {
             provider = provider.with_account_id(account_id);
         }
-        let tools =
-            ResearchTools::new(&self.tavily_api_key).map_err(|error| ResearchError::Agent(error.to_string()))?;
+        let tools = ResearchTools::new(self.tools_http.clone(), Arc::clone(&self.tavily_api_key));
         let tool_error = |error: rig::message::EmptyToolName| ResearchError::Agent(error.to_string());
         let agent = AgentBuilder::new(provider.connect(self.http.clone()).completion(RECAP_MODEL))
             .options(GenerationOptions::new().reasoning(RECAP_REASONING))
@@ -80,8 +85,7 @@ impl ChatGptResearcher {
         Ok(response.output())
     }
 
-    /// Return whether a usable ChatGPT sign-in is kept, treating transport failures as still signed in.
-    pub async fn is_signed_in(&self) -> bool {
+    async fn is_signed_in(&self) -> bool {
         // Rig reports a missing or rejected sign-in as a message; other errors are transient.
         !matches!(self.authenticator.auth_context(&self.http).await, Err(AuthError::Message(_)))
     }

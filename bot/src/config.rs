@@ -23,7 +23,6 @@ pub enum UpdateMode {
 pub struct Configs {
     #[serde(default = "default_database_url")]
     pub database_url: String,
-    #[serde(default)]
     pub bot_token: String,
     /// The only Telegram user the bot and the Mini App serve.
     pub admin_user_id: i64,
@@ -73,9 +72,6 @@ impl Configs {
 
     /// Fail fast on settings the bot cannot run without.
     pub fn require_service_settings(&self) -> Result<()> {
-        if self.bot_token.is_empty() {
-            bail!("TELEGRAM_NEWS_BOT_TOKEN is required");
-        }
         if self.bot_update_mode == UpdateMode::Webhook {
             // Without the secret, anyone who finds the webhook URL could send the bot fake updates.
             if self.bot_webhook_secret_token.is_empty() {

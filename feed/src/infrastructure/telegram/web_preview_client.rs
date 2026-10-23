@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use crate::use_cases::forward_posts::PreviewSource;
+
 const PRIMARY_PREVIEW_URL: &str = "https://t.me";
 const FALLBACK_PREVIEW_URL: &str = "https://telegram.me";
 
@@ -28,8 +30,14 @@ impl TelegramWebPreviewClient {
         })
     }
 
+    async fn fetch_from(&self, base_url: &str, username: &str) -> reqwest::Result<String> {
+        self.http.get(format!("{base_url}/s/{username}")).send().await?.error_for_status()?.text().await
+    }
+}
+
+impl PreviewSource for TelegramWebPreviewClient {
     /// Fetch a channel's public web preview page, trying the fallback host once when the primary is unreachable.
-    pub async fn fetch_channel_preview(&self, username: &str) -> Result<String, PreviewUnavailableError> {
+    async fn fetch_channel_preview(&self, username: &str) -> Result<String, PreviewUnavailableError> {
         let page = match self.fetch_from(&self.primary_url, username).await {
             Err(error) if error.is_connect() => self.fetch_from(&self.fallback_url, username).await,
             page => page,
@@ -39,10 +47,6 @@ impl TelegramWebPreviewClient {
             // The error chain names the cause, such as a DNS failure, under the request error.
             reason: format!("{:#}", anyhow::Error::from(error)),
         })
-    }
-
-    async fn fetch_from(&self, base_url: &str, username: &str) -> reqwest::Result<String> {
-        self.http.get(format!("{base_url}/s/{username}")).send().await?.error_for_status()?.text().await
     }
 }
 

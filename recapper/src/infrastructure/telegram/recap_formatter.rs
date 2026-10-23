@@ -13,12 +13,19 @@ pub fn build_recap_message(stories: &[RecapStory], topics: &[String]) -> String 
         return format!("{header}\n\n{EMPTY_RECAP_TEXT}");
     }
 
-    let mut blocks: Vec<String> = stories.iter().map(build_story).collect();
     // Telegram counts visible text, which is never longer than the HTML, so this bound is safe.
-    while blocks.len() > 1 && join(&header, &blocks).chars().count() > TEXT_MESSAGE_LIMIT {
-        blocks.pop();
+    let mut message = header;
+    let mut length = message.chars().count();
+    for (index, block) in stories.iter().map(build_story).enumerate() {
+        length += 2 + block.chars().count();
+        // The first story always goes out, even when it alone is too long.
+        if index > 0 && length > TEXT_MESSAGE_LIMIT {
+            break;
+        }
+        message.push_str("\n\n");
+        message.push_str(&block);
     }
-    join(&header, &blocks)
+    message
 }
 
 /// Build one escaped recap story block with its source link.
@@ -31,10 +38,6 @@ fn build_story(story: &RecapStory) -> String {
         escape_attribute(&story.url),
         escape_text(&story.source_name),
     )
-}
-
-fn join(header: &str, blocks: &[String]) -> String {
-    std::iter::once(header.to_owned()).chain(blocks.iter().cloned()).collect::<Vec<_>>().join("\n\n")
 }
 
 #[cfg(test)]

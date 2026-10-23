@@ -7,15 +7,10 @@ use sqlx::Row;
 use sqlx::postgres::PgPool;
 
 use crate::domain::posts::SourceChannel;
+use crate::use_cases::forward_posts::{FeedSettings, FeedStore};
 
 // One loop does one thing at a time; the second connection only covers a reconnect.
 const MAX_CONNECTIONS: u32 = 2;
-
-/// The stored destination chat and poll interval.
-pub struct FeedSettings {
-    pub destination: Option<String>,
-    pub poll_interval: Duration,
-}
 
 /// Channel subscriptions, their cursors, and feed settings in the shared Postgres database.
 pub struct PostgresFeedStore {
@@ -27,9 +22,10 @@ impl PostgresFeedStore {
     pub fn connect_lazy(database_url: &str) -> Result<Self> {
         Ok(Self { pool: connect_lazy(database_url, MAX_CONNECTIONS)? })
     }
+}
 
-    /// Read the destination chat and the poll interval, which falls back to the default before the first save.
-    pub async fn load_settings(&self, default_poll_interval_seconds: u64) -> Result<FeedSettings> {
+impl FeedStore for PostgresFeedStore {
+    async fn load_settings(&self, default_poll_interval_seconds: u64) -> Result<FeedSettings> {
         let mut values = load_settings(&self.pool, &[DESTINATION_CHAT_ID_KEY, POLL_INTERVAL_SECONDS_KEY]).await?;
         let poll_interval_seconds = match values.get(POLL_INTERVAL_SECONDS_KEY) {
             Some(seconds) => seconds.parse().context("invalid stored poll interval")?,
@@ -41,8 +37,7 @@ impl PostgresFeedStore {
         })
     }
 
-    /// Return up to `limit` active channels after the `after` username, in username order.
-    pub async fn list_active_channels(&self, after: &str, limit: i64) -> Result<Vec<SourceChannel>> {
+    async fn list_active_channels(&self, after: &str, limit: i64) -> Result<Vec<SourceChannel>> {
         let rows = sqlx::query(
             "SELECT username, last_committed_message_id FROM source_channel \
              WHERE active AND username > $1 ORDER BY username LIMIT $2",
@@ -60,8 +55,7 @@ impl PostgresFeedStore {
             .collect())
     }
 
-    /// Move an active channel's cursor forward to `message_id`, and return false when the channel is not active.
-    pub async fn commit_post(&self, source_channel: &str, message_id: i32) -> Result<bool> {
+    async fn commit_post(&self, source_channel: &str, message_id: i32) -> Result<bool> {
         let result = sqlx::query(
             "UPDATE source_channel SET last_committed_message_id = $2, updated_at = now() \
              WHERE username = $1 AND active AND last_committed_message_id < $2",

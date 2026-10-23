@@ -107,32 +107,33 @@ async function saveRecap(enabled) {
   }, renderRecap);
 }
 
-async function loadState() {
+// Run one request with the controls disabled, show its outcome, and return whether it succeeded.
+async function run(task, successMessage = "") {
   setBusy(true);
   try {
-    const data = await apiFetch("/api/state");
-    renderState(data);
-    setMessage("");
+    await task();
+    setMessage(successMessage);
+    return true;
   } catch (error) {
     setMessage(error.message, true);
+    return false;
   } finally {
     setBusy(false);
   }
 }
 
+function loadState() {
+  return run(async () => renderState(await apiFetch("/api/state")));
+}
+
+function loadChannels() {
+  const path = `/api/channels?after=${encodeURIComponent(state.nextCursor)}`;
+  return run(async () => renderChannelPage(await apiFetch(path)));
+}
+
 async function mutate(path, options, applyChange) {
-  setBusy(true);
-  try {
-    const data = await apiFetch(path, options);
-    applyChange(data);
-    setMessage("Updated.");
-    telegram?.HapticFeedback?.notificationOccurred("success");
-  } catch (error) {
-    setMessage(error.message, true);
-    telegram?.HapticFeedback?.notificationOccurred("error");
-  } finally {
-    setBusy(false);
-  }
+  const succeeded = await run(async () => applyChange(await apiFetch(path, options)), "Updated.");
+  telegram?.HapticFeedback?.notificationOccurred(succeeded ? "success" : "error");
 }
 
 async function apiFetch(path, options = {}) {
@@ -146,24 +147,12 @@ async function apiFetch(path, options = {}) {
   });
 
   if (!response.ok) {
-    const errorPayload = await response.json();
-    throw new Error(errorPayload.detail);
+    // A proxy in front of the bot may answer with a page that is not JSON.
+    const errorPayload = await response.json().catch(() => null);
+    throw new Error(errorPayload?.detail ?? `Request failed: ${response.status} ${response.statusText}`);
   }
 
   return response.status === 204 ? null : response.json();
-}
-
-async function loadChannels() {
-  setBusy(true);
-  try {
-    const page = await apiFetch(`/api/channels?after=${encodeURIComponent(state.nextCursor)}`);
-    renderChannelPage(page);
-    setMessage("");
-  } catch (error) {
-    setMessage(error.message, true);
-  } finally {
-    setBusy(false);
-  }
 }
 
 function renderState(data) {
@@ -185,16 +174,21 @@ function renderRecap(recap) {
 }
 
 function renderRecapIntervalButtons() {
-  elements.recapIntervalButtons.forEach((button) => {
-    const isSelected = button.dataset.recapInterval === state.recapInterval;
-    button.classList.toggle("is-selected", isSelected);
-    button.setAttribute("aria-pressed", String(isSelected));
-  });
+  renderPresets(elements.recapIntervalButtons, "recapInterval", state.recapInterval);
 }
 
 function renderSettings(data) {
   state.currentInterval = formatInterval(data.poll_interval_seconds);
-  renderIntervalButtons();
+  renderPresets(elements.presetButtons, "interval", state.currentInterval);
+}
+
+// Mark the preset button whose `data-*` value under `key` is `selected`.
+function renderPresets(buttons, key, selected) {
+  buttons.forEach((button) => {
+    const isSelected = button.dataset[key] === selected;
+    button.classList.toggle("is-selected", isSelected);
+    button.setAttribute("aria-pressed", String(isSelected));
+  });
 }
 
 function renderChannelPage(page) {
@@ -214,14 +208,6 @@ function renderEmptyState() {
       : "Load more to see the remaining channels.";
     elements.channelList.append(empty);
   }
-}
-
-function renderIntervalButtons() {
-  elements.presetButtons.forEach((button) => {
-    const isSelected = button.dataset.interval === state.currentInterval;
-    button.classList.toggle("is-selected", isSelected);
-    button.setAttribute("aria-pressed", String(isSelected));
-  });
 }
 
 function renderChannel(channel) {

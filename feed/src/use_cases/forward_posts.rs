@@ -6,21 +6,27 @@ use futures::future::join_all;
 use tracing::{error, info, warn};
 
 use crate::domain::posts::{DiscoveredPost, SourceChannel};
-use crate::infrastructure::database::{FeedSettings, PostgresFeedStore};
-use crate::infrastructure::telegram::media_downloader::{MediaError, TelegramMediaDownloader};
-use crate::infrastructure::telegram::message_formatter::{
-    build_body_messages, build_media_caption, build_message_text, build_text_messages,
-};
-use crate::infrastructure::telegram::web_preview_client::{PreviewUnavailableError, TelegramWebPreviewClient};
+use crate::infrastructure::telegram::media_downloader::MediaError;
+use crate::infrastructure::telegram::message_formatter::{build_media_messages, build_text_messages};
+use crate::infrastructure::telegram::web_preview_client::PreviewUnavailableError;
 use crate::infrastructure::telegram::web_preview_parser::parse_channel_preview;
 
 // Channels per database page. Each page's previews are fetched together, which also caps concurrent requests.
 const CHANNEL_PAGE_SIZE: i64 = 10;
 
+/// The stored destination chat and poll interval.
+pub struct FeedSettings {
+    pub destination: Option<String>,
+    pub poll_interval: Duration,
+}
+
 /// Where subscriptions, cursors, and feed settings are kept.
 pub trait FeedStore {
+    /// Read the destination chat and the poll interval, which falls back to the default before the first save.
     async fn load_settings(&self, default_poll_interval_seconds: u64) -> Result<FeedSettings>;
+    /// Return up to `limit` active channels after the `after` username, in username order.
     async fn list_active_channels(&self, after: &str, limit: i64) -> Result<Vec<SourceChannel>>;
+    /// Move an active channel's cursor forward to `message_id`, and return false when the channel is not active.
     async fn commit_post(&self, source_channel: &str, message_id: i32) -> Result<bool>;
 }
 
@@ -31,6 +37,7 @@ pub trait PreviewSource {
 
 /// Where post media comes from.
 pub trait MediaSource {
+    /// Download up to an album's worth of media and prepare it as Bot API uploads.
     async fn download_media(&self, media_urls: &[String]) -> Result<Vec<TelegramUpload>, MediaError>;
 }
 
@@ -45,32 +52,6 @@ pub trait FeedMessenger {
         media: Vec<TelegramUpload>,
         caption: &str,
     ) -> Result<(), TelegramError>;
-}
-
-impl FeedStore for PostgresFeedStore {
-    async fn load_settings(&self, default_poll_interval_seconds: u64) -> Result<FeedSettings> {
-        PostgresFeedStore::load_settings(self, default_poll_interval_seconds).await
-    }
-
-    async fn list_active_channels(&self, after: &str, limit: i64) -> Result<Vec<SourceChannel>> {
-        PostgresFeedStore::list_active_channels(self, after, limit).await
-    }
-
-    async fn commit_post(&self, source_channel: &str, message_id: i32) -> Result<bool> {
-        PostgresFeedStore::commit_post(self, source_channel, message_id).await
-    }
-}
-
-impl PreviewSource for TelegramWebPreviewClient {
-    async fn fetch_channel_preview(&self, username: &str) -> Result<String, PreviewUnavailableError> {
-        TelegramWebPreviewClient::fetch_channel_preview(self, username).await
-    }
-}
-
-impl MediaSource for TelegramMediaDownloader {
-    async fn download_media(&self, media_urls: &[String]) -> Result<Vec<TelegramUpload>, MediaError> {
-        TelegramMediaDownloader::download_media(self, media_urls).await
-    }
 }
 
 impl FeedMessenger for TelegramBotApi {
@@ -199,23 +180,21 @@ impl<S: FeedStore, P: PreviewSource, D: MediaSource, M: FeedMessenger> PostForwa
             return self.send_text_messages(destination, post).await;
         }
 
-        let caption = build_media_caption(post);
+        let (caption, follow_ups) = build_media_messages(post);
         match <[TelegramUpload; 1]>::try_from(media) {
             Ok([upload]) if upload.is_video() => self.messenger.send_video(destination, upload, &caption).await?,
             Ok([upload]) => self.messenger.send_photo(destination, upload, &caption).await?,
             Err(media) => self.messenger.send_media_group(destination, media, &caption).await?,
         }
-        // A caption without the post text was only the channel header, so the body follows on its own.
-        if caption != build_message_text(post) {
-            for message in build_body_messages(post) {
-                self.messenger.send_html_message(destination, &message).await?;
-            }
-        }
-        Ok(())
+        self.send_html_messages(destination, follow_ups).await
     }
 
     async fn send_text_messages(&self, destination: &str, post: &DiscoveredPost) -> Result<(), TelegramError> {
-        for message in build_text_messages(post) {
+        self.send_html_messages(destination, build_text_messages(post)).await
+    }
+
+    async fn send_html_messages(&self, destination: &str, messages: Vec<String>) -> Result<(), TelegramError> {
+        for message in messages {
             self.messenger.send_html_message(destination, &message).await?;
         }
         Ok(())

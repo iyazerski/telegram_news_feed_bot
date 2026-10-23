@@ -64,54 +64,66 @@ fn extract_channel_display_name(message: ElementRef<'_>) -> Result<String> {
 }
 
 fn extract_text_html(message: ElementRef<'_>) -> String {
-    message.select(&MESSAGE_TEXT).next().map_or_else(String::new, |text| render_children(text, false).trim().to_owned())
+    let Some(text) = message.select(&MESSAGE_TEXT).next() else {
+        return String::new();
+    };
+    let mut rendered = String::new();
+    render_children(text, false, &mut rendered);
+    rendered.trim().to_owned()
 }
 
-/// Render child nodes into the subset of HTML accepted by the Telegram Bot API.
-fn render_children(element: ElementRef<'_>, in_pre: bool) -> String {
-    let mut rendered = String::new();
+/// Render child nodes into `out`, in the subset of HTML accepted by the Telegram Bot API.
+fn render_children(element: ElementRef<'_>, in_pre: bool, out: &mut String) {
     for child in element.children() {
         if let Some(child) = ElementRef::wrap(child) {
-            rendered.push_str(&render_element(child, in_pre));
+            render_element(child, in_pre, out);
         } else if let Node::Text(text) = child.value() {
             // Collapse markup indentation between tags so it does not become visible text, except inside <pre>.
             if !in_pre && !text.is_empty() && text.chars().all(char::is_whitespace) {
-                rendered.push(if text.contains('\n') { '\n' } else { ' ' });
+                out.push(if text.contains('\n') { '\n' } else { ' ' });
             } else {
-                rendered.push_str(&escape_text(text));
+                out.push_str(&escape_text(text));
             }
         }
     }
-    rendered
 }
 
-fn render_element(element: ElementRef<'_>, in_pre: bool) -> String {
+fn render_element(element: ElementRef<'_>, in_pre: bool, out: &mut String) {
     let name = element.value().name();
     if name == "br" {
-        return "\n".to_owned();
+        out.push('\n');
+        return;
     }
     // Telegram renders emoji as styled <i> tags whose text content is the real emoji.
     if name == "i" && has_class(element, "emoji") {
-        return escape_text(&element.text().collect::<String>());
+        out.push_str(&escape_text(&element.text().collect::<String>()));
+        return;
     }
 
-    let inner = render_children(element, in_pre || name == "pre");
+    let href = element.value().attr("href");
     let tag = match name {
-        "a" => {
-            return match element.value().attr("href") {
-                Some(href) => format!("<a href=\"{}\">{inner}</a>", escape_attribute(href)),
-                None => inner,
-            };
-        }
+        "a" if href.is_some() => "a",
         "b" | "strong" => "b",
         "i" | "em" => "i",
         "u" => "u",
         "s" | "strike" | "del" => "s",
         "code" => "code",
         "pre" => "pre",
-        _ => return inner,
+        // Other tags, and links without a target, keep only their content.
+        _ => return render_children(element, in_pre, out),
     };
-    format!("<{tag}>{inner}</{tag}>")
+    out.push('<');
+    out.push_str(tag);
+    if let Some(href) = href.filter(|_| tag == "a") {
+        out.push_str(" href=\"");
+        out.push_str(&escape_attribute(href));
+        out.push('"');
+    }
+    out.push('>');
+    render_children(element, in_pre || tag == "pre", out);
+    out.push_str("</");
+    out.push_str(tag);
+    out.push('>');
 }
 
 /// Return the media URLs of a post and whether it has media that the preview does not expose.

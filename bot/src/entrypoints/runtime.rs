@@ -27,13 +27,10 @@ pub async fn run_forever(configs: Configs) -> Result<()> {
     let mini_app = MiniApp::new(
         feed(),
         RecapService::new(Arc::clone(&store), configs.default_recap_interval_seconds),
-        MiniAppAuth {
-            bot_token: configs.bot_token.clone(),
-            admin_user_id: configs.admin_user_id,
-            max_age_seconds: configs.mini_app_auth_max_age_seconds,
-        },
+        MiniAppAuth::new(&configs.bot_token, configs.admin_user_id, configs.mini_app_auth_max_age_seconds),
     )
     .into_router();
+    let app = create_app(mini_app);
     configure_menu_button(&configs, &telegram).await;
 
     let listener = TcpListener::bind((configs.bot_webhook_listen_host.as_str(), configs.bot_webhook_port)).await?;
@@ -48,8 +45,7 @@ pub async fn run_forever(configs: Configs) -> Result<()> {
                 secret_token: configs.bot_webhook_secret_token.clone(),
                 commands,
             };
-            let app = create_app(mini_app, Some(webhook));
-            axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
+            axum::serve(listener, app.merge(webhook.into_router())).with_graceful_shutdown(shutdown_signal()).await?;
         }
         UpdateMode::Polling => {
             if configs.bot_delete_webhook_on_polling_start {
@@ -61,7 +57,6 @@ pub async fn run_forever(configs: Configs) -> Result<()> {
                 Duration::from_secs(configs.telegram_get_updates_timeout_seconds),
                 Duration::from_secs(configs.telegram_get_updates_retry_seconds),
             );
-            let app = create_app::<PostgresBotStore, TelegramBotApi>(mini_app, None);
             let server = axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).into_future();
             // The server stops on the shutdown signal, which also ends polling.
             tokio::select! {

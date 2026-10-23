@@ -31,29 +31,25 @@ pub struct Webhook<S, M> {
     pub commands: CommandHandler<S, M>,
 }
 
-/// Return the app that serves health checks, the Mini App and its API, and the webhook when there is one.
-pub fn create_app<S, M>(mini_app: Router, webhook: Option<Webhook<S, M>>) -> Router
-where
-    S: FeedStore + 'static,
-    M: BotMessenger + 'static,
-{
-    let app = Router::new()
+impl<S: FeedStore + 'static, M: BotMessenger + 'static> Webhook<S, M> {
+    /// Return the route that receives the updates.
+    pub fn into_router(self) -> Router {
+        let path = self.path.clone();
+        Router::new().route(&path, post(receive_update::<S, M>)).with_state(Arc::new(self))
+    }
+}
+
+/// Return the app that serves health checks and the Mini App with its API.
+pub fn create_app(mini_app: Router) -> Router {
+    Router::new()
         .route("/healthz", get(|| async { "ok" }))
         // Relative asset paths in the page need the trailing slash.
         .route("/", get(|| async { Redirect::temporary("/app/") }))
         .route("/app", get(|| async { Redirect::temporary("/app/") }))
         .route("/app/", get(|| async { asset("text/html; charset=utf-8", INDEX_HTML) }))
-        .route("/app/index.html", get(|| async { asset("text/html; charset=utf-8", INDEX_HTML) }))
         .route("/app/app.js", get(|| async { asset("text/javascript; charset=utf-8", APP_JS) }))
         .route("/app/styles.css", get(|| async { asset("text/css; charset=utf-8", STYLES_CSS) }))
-        .merge(mini_app);
-    match webhook {
-        Some(webhook) => {
-            let path = webhook.path.clone();
-            app.merge(Router::new().route(&path, post(receive_update::<S, M>)).with_state(Arc::new(webhook)))
-        }
-        None => app,
-    }
+        .merge(mini_app)
 }
 
 /// Answer with a built-in Mini App file, which browsers check again on each load so a deploy shows up at once.
@@ -86,13 +82,13 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
-    use crate::entrypoints::commands::tests::{ADMIN_ID, FakeMessenger, handler};
+    use crate::entrypoints::commands::tests::{ADMIN_ID, handler};
     use crate::testing::FakeStore;
 
     fn app(store: &Arc<FakeStore>) -> Router {
         let (commands, _) = handler(store);
         let webhook = Webhook { path: "/telegram/webhook".to_owned(), secret_token: "secret".to_owned(), commands };
-        create_app::<FakeStore, FakeMessenger>(Router::new(), Some(webhook))
+        create_app(Router::new()).merge(webhook.into_router())
     }
 
     async fn status(app: &Router, request: Request<Body>) -> StatusCode {

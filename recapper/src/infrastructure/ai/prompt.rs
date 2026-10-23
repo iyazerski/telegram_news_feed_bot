@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use common::settings::RecapSettings;
 use serde::Deserialize;
+use url::Url;
 
 use crate::domain::recaps::RecapStory;
 
@@ -62,14 +63,14 @@ Return {{"stories": []}} when nothing important and new happened in the time win
 
 /// Parse the agent's recap reply into stories, tolerating text around the JSON object.
 pub fn parse_news_recap_output(output: &str) -> Result<Vec<RecapStory>, String> {
-    let (Some(start), Some(end)) = (output.find('{'), output.rfind('}')) else {
-        return Err("the reply does not contain a JSON object".to_owned());
-    };
-    if end < start {
-        return Err("the reply does not contain a JSON object".to_owned());
-    }
-    let recap: RecapOutput = serde_json::from_str(&output[start..=end])
-        .map_err(|error| format!("the reply is not a valid recap: {error}"))?;
+    let json = output
+        .find('{')
+        .zip(output.rfind('}'))
+        .filter(|(start, end)| start < end)
+        .map(|(start, end)| &output[start..=end])
+        .ok_or_else(|| "the reply does not contain a JSON object".to_owned())?;
+    let recap: RecapOutput =
+        serde_json::from_str(json).map_err(|error| format!("the reply is not a valid recap: {error}"))?;
     recap
         .stories
         .into_iter()
@@ -97,9 +98,11 @@ fn bounded(field: &str, value: &str, max_chars: usize) -> Result<String, String>
 
 /// Return the URL when it is a whitespace-free http(s) link, so the Telegram link cannot run script.
 fn http_url(value: &str) -> Result<String, String> {
-    let has_scheme = value.starts_with("https://") || value.starts_with("http://");
-    let rest = value.split_once("://").map_or("", |(_, rest)| rest);
-    if !has_scheme || rest.is_empty() || value.chars().any(char::is_whitespace) || value.len() > 2000 {
+    // Url::parse strips and encodes whitespace, so it is rejected before parsing.
+    let is_http_url = value.len() <= 2000
+        && !value.chars().any(char::is_whitespace)
+        && Url::parse(value).is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.has_host());
+    if !is_http_url {
         return Err(format!("the reply is not a valid recap: {value} is not an http(s) URL"));
     }
     Ok(value.to_owned())

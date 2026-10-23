@@ -1,14 +1,13 @@
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
-use common::settings::RecapSettings;
+use common::settings::{RecapSchedule, RecapSettings};
 use common::telegram::bot_api::{TelegramBotApi, TelegramError};
 use tracing::{error, info, warn};
 
 use crate::config::Configs;
 use crate::domain::recaps::{RecapStory, select_new_stories};
 use crate::infrastructure::ai::prompt::{build_news_recap_prompt, parse_news_recap_output};
-use crate::infrastructure::ai::researcher::{ChatGptResearcher, ResearchError};
-use crate::infrastructure::database::{PostgresRecapStore, StoredRecap};
+use crate::infrastructure::ai::researcher::ResearchError;
 use crate::infrastructure::telegram::recap_formatter::build_recap_message;
 
 // Short intervals would only see a few hours of news, so research always covers at least a day.
@@ -17,10 +16,19 @@ const MIN_RECAP_WINDOW: Duration = Duration::hours(24);
 pub const AUTH_ALERT_TEXT: &str = "⚠️ AI news recaps are paused because the recapper is not signed in to ChatGPT. \
      Sign in again with: kubectl exec -it deploy/telegram-news-recapper -- recapper login";
 
+/// The stored recap configuration, schedule, and destination.
+pub struct StoredRecap {
+    pub schedule: RecapSchedule,
+    pub destination: Option<String>,
+}
+
 /// Where recap settings, schedule, and history are kept.
 pub trait RecapStore {
+    /// Read the recap settings, next run time, and destination chat.
     async fn load_recap(&self, default_interval_seconds: i64) -> Result<StoredRecap>;
+    /// Return the newest sent stories as (title, url) pairs.
     async fn load_sent_stories(&self, limit: i64) -> Result<Vec<(String, String)>>;
+    /// Remember sent stories, prune history older than `prune_before`, and schedule the next recap, atomically.
     async fn commit_recap(
         &self,
         stories: &[RecapStory],
@@ -28,12 +36,15 @@ pub trait RecapStore {
         prune_before: DateTime<Utc>,
         next_run_at: DateTime<Utc>,
     ) -> Result<()>;
+    /// Store when the next recap attempt runs.
     async fn schedule(&self, run_at: DateTime<Utc>) -> Result<()>;
 }
 
 /// What researches a recap prompt.
 pub trait RecapResearcher {
+    /// Run the recap prompt through the agent and return its final reply.
     async fn research(&self, prompt: &str) -> Result<String, ResearchError>;
+    /// Return whether a usable sign-in is kept, treating transport failures as still signed in.
     async fn is_signed_in(&self) -> bool;
 }
 
@@ -41,40 +52,6 @@ pub trait RecapResearcher {
 pub trait RecapMessenger {
     async fn send_html_message(&self, chat_id: &str, text: &str, disable_preview: bool) -> Result<(), TelegramError>;
     async fn send_text_message(&self, chat_id: &str, text: &str) -> Result<(), TelegramError>;
-}
-
-impl RecapStore for PostgresRecapStore {
-    async fn load_recap(&self, default_interval_seconds: i64) -> Result<StoredRecap> {
-        PostgresRecapStore::load_recap(self, default_interval_seconds).await
-    }
-
-    async fn load_sent_stories(&self, limit: i64) -> Result<Vec<(String, String)>> {
-        PostgresRecapStore::load_sent_stories(self, limit).await
-    }
-
-    async fn commit_recap(
-        &self,
-        stories: &[RecapStory],
-        sent_at: DateTime<Utc>,
-        prune_before: DateTime<Utc>,
-        next_run_at: DateTime<Utc>,
-    ) -> Result<()> {
-        PostgresRecapStore::commit_recap(self, stories, sent_at, prune_before, next_run_at).await
-    }
-
-    async fn schedule(&self, run_at: DateTime<Utc>) -> Result<()> {
-        PostgresRecapStore::schedule(self, run_at).await
-    }
-}
-
-impl RecapResearcher for ChatGptResearcher {
-    async fn research(&self, prompt: &str) -> Result<String, ResearchError> {
-        ChatGptResearcher::research(self, prompt).await
-    }
-
-    async fn is_signed_in(&self) -> bool {
-        ChatGptResearcher::is_signed_in(self).await
-    }
 }
 
 impl RecapMessenger for TelegramBotApi {
@@ -154,8 +131,8 @@ impl<S: RecapStore, R: RecapResearcher, M: RecapMessenger> NewsRecapService<S, R
             Err(generation_error) => return self.handle_generation_failure(&due, now, &generation_error).await,
         };
 
-        let sent_urls: Vec<String> = due.sent_stories.iter().map(|(_, url)| url.clone()).collect();
-        let stories = select_new_stories(stories, &sent_urls, self.policy.story_count);
+        let sent_urls = due.sent_stories.iter().map(|(_, url)| url.as_str());
+        let stories = select_new_stories(stories, sent_urls, self.policy.story_count);
         let message = build_recap_message(&stories, &due.settings.topics);
         if let Err(delivery_error) = self.messenger.send_html_message(&due.destination, &message, true).await {
             if delivery_error.is_retryable() {
@@ -174,16 +151,17 @@ impl<S: RecapStore, R: RecapResearcher, M: RecapMessenger> NewsRecapService<S, R
 
     /// Read the recap inputs when recaps are on, due, and have a destination chat.
     async fn load_due_recap(&self, now: DateTime<Utc>) -> Result<Option<DueRecap>> {
-        let stored = self.store.load_recap(self.policy.default_interval_seconds).await?;
-        let due = stored.next_run_at.is_some_and(|run_at| run_at <= now);
-        if !stored.settings.enabled || stored.settings.topics.is_empty() || !due {
+        let StoredRecap { schedule: RecapSchedule { settings, next_run_at }, destination } =
+            self.store.load_recap(self.policy.default_interval_seconds).await?;
+        let due = next_run_at.is_some_and(|run_at| run_at <= now);
+        if !settings.enabled || settings.topics.is_empty() || !due {
             return Ok(None);
         }
-        let Some(destination) = stored.destination else {
+        let Some(destination) = destination else {
             return Ok(None);
         };
         let sent_stories = self.store.load_sent_stories(self.policy.history_size).await?;
-        Ok(Some(DueRecap { settings: stored.settings, destination, sent_stories }))
+        Ok(Some(DueRecap { settings, destination, sent_stories }))
     }
 
     /// Retry soon after transient failures, and alert once per interval when the ChatGPT sign-in is lost.
@@ -258,13 +236,15 @@ mod tests {
     impl RecapStore for FakeStore {
         async fn load_recap(&self, _default_interval_seconds: i64) -> Result<StoredRecap> {
             Ok(StoredRecap {
-                settings: RecapSettings {
-                    topics: vec!["AI".to_owned()],
-                    language: "English".to_owned(),
-                    interval_seconds: INTERVAL.num_seconds(),
-                    enabled: true,
+                schedule: RecapSchedule {
+                    settings: RecapSettings {
+                        topics: vec!["AI".to_owned()],
+                        language: "English".to_owned(),
+                        interval_seconds: INTERVAL.num_seconds(),
+                        enabled: true,
+                    },
+                    next_run_at: self.next_run_at(),
                 },
-                next_run_at: self.next_run_at(),
                 destination: Some("@dest".to_owned()),
             })
         }
