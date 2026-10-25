@@ -97,8 +97,9 @@ impl<S: FeedStore, P: PreviewSource, D: MediaSource, M: FeedMessenger> PostForwa
         let settings = self.store.load_settings(self.default_poll_interval_seconds).await?;
         match &settings.destination {
             Some(destination) => self.forward_new_posts(destination).await?,
-            // Posts stay undelivered on their channels' pages until there is a chat to send them to.
-            None => warn!("No bot chat to forward posts to yet; send /start to the bot"),
+            // Posts stay undelivered on their channels' pages until there is a chat to send them to: before the first
+            // /start, and while the chat has blocked the bot.
+            None => info!("No bot chat to forward posts to; waiting for /start"),
         }
         Ok(settings.poll_interval)
     }

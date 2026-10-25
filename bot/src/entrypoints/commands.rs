@@ -1,8 +1,8 @@
 use std::future::Future;
 
 use anyhow::Result;
-use common::telegram::bot_api::{TelegramBotApi, TelegramError, Update};
-use tracing::error;
+use common::telegram::bot_api::{ChatMemberUpdated, Message, TelegramBotApi, TelegramError, Update};
+use tracing::{error, info};
 
 use crate::use_cases::manage_feed::{Feed, FeedStore};
 
@@ -22,7 +22,7 @@ impl BotMessenger for TelegramBotApi {
     }
 }
 
-/// Answers the bot's text commands, which only the admin may use.
+/// Answers the bot's text commands, which only the admin may use, and pauses the feed when its chat drops the bot.
 pub struct CommandHandler<S, M> {
     feed: Feed<S>,
     messenger: M,
@@ -36,9 +36,25 @@ impl<S: FeedStore, M: BotMessenger> CommandHandler<S, M> {
 
     /// Handle one update, and fail only when the command could not be carried out, so that Telegram may resend it.
     pub async fn handle_update(&self, update: &Update) -> Result<()> {
-        let Some(message) = &update.message else {
-            return Ok(());
-        };
+        if let Some(membership) = &update.my_chat_member {
+            return self.handle_membership(membership).await;
+        }
+        match &update.message {
+            Some(message) => self.handle_message(message).await,
+            None => Ok(()),
+        }
+    }
+
+    /// Pause posts and recaps when the connected chat blocks or removes the bot; the next /start resumes them.
+    async fn handle_membership(&self, membership: &ChatMemberUpdated) -> Result<()> {
+        let chat_id = membership.chat.id;
+        if membership.new_chat_member.status.is_gone() && self.feed.disconnect_chat(chat_id).await? {
+            info!("Paused posts and recaps: chat {chat_id} blocked or removed the bot");
+        }
+        Ok(())
+    }
+
+    async fn handle_message(&self, message: &Message) -> Result<()> {
         let (Some(text), Some(sender)) = (&message.text, &message.from) else {
             return Ok(());
         };
@@ -70,7 +86,7 @@ impl<S: FeedStore, M: BotMessenger> CommandHandler<S, M> {
 pub mod tests {
     use std::sync::{Arc, Mutex};
 
-    use common::telegram::bot_api::{Chat, Message, User};
+    use common::telegram::bot_api::{Chat, ChatMember, ChatMemberStatus, User};
 
     use super::*;
     use crate::testing::FakeStore;
@@ -107,6 +123,18 @@ pub mod tests {
                 from: Some(User { id: sender_id }),
                 text: Some(text.to_owned()),
             }),
+            my_chat_member: None,
+        }
+    }
+
+    fn membership_update(update_id: i64, chat_id: i64, status: ChatMemberStatus) -> Update {
+        Update {
+            update_id,
+            message: None,
+            my_chat_member: Some(ChatMemberUpdated {
+                chat: Chat { id: chat_id },
+                new_chat_member: ChatMember { status },
+            }),
         }
     }
 
@@ -119,6 +147,25 @@ pub mod tests {
 
         assert_eq!(store.destination().as_deref(), Some("456"));
         assert_eq!(*sent.lock().unwrap(), [("456".to_owned(), HELP_TEXT.to_owned())]);
+    }
+
+    #[tokio::test]
+    async fn blocking_the_bot_pauses_its_chat_until_the_next_start() {
+        let store = Arc::new(FakeStore::default());
+        let (commands, sent) = handler(&store);
+        commands.handle_update(&text_update(1, ADMIN_ID, 456, "/start")).await.unwrap();
+
+        // Changes in other chats leave the connected chat alone.
+        commands.handle_update(&membership_update(2, 789, ChatMemberStatus::Kicked)).await.unwrap();
+        commands.handle_update(&membership_update(3, 456, ChatMemberStatus::Present)).await.unwrap();
+        assert_eq!(store.destination().as_deref(), Some("456"));
+
+        commands.handle_update(&membership_update(4, 456, ChatMemberStatus::Kicked)).await.unwrap();
+        assert_eq!(store.destination(), None);
+
+        commands.handle_update(&text_update(5, ADMIN_ID, 456, "/start")).await.unwrap();
+        assert_eq!(store.destination().as_deref(), Some("456"));
+        assert_eq!(sent.lock().unwrap().len(), 2);
     }
 
     #[tokio::test]

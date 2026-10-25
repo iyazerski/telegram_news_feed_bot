@@ -12,6 +12,8 @@ pub const CHANNEL_PAGE_SIZE: usize = 100;
 /// Where the bot chat, the poll interval, and channel subscriptions are kept.
 pub trait FeedStore: Send + Sync {
     fn store_destination_chat_id(&self, chat_id: &str) -> impl Future<Output = Result<()>> + Send;
+    /// Delete the bot chat if it is `chat_id`, and return whether it was.
+    fn delete_destination_chat_id(&self, chat_id: &str) -> impl Future<Output = Result<bool>> + Send;
     fn load_poll_interval_seconds(&self) -> impl Future<Output = Result<Option<u64>>> + Send;
     fn store_poll_interval_seconds(&self, seconds: u64) -> impl Future<Output = Result<()>> + Send;
     /// Return up to `limit` active channel usernames after `after`, in username order.
@@ -44,6 +46,12 @@ impl<S: FeedStore> Feed<S> {
     /// Make `chat_id` the chat that receives posts and recaps.
     pub async fn connect_chat(&self, chat_id: i64) -> Result<()> {
         self.store.store_destination_chat_id(&chat_id.to_string()).await
+    }
+
+    /// Pause posts and recaps when `chat_id` is the connected chat, keeping every other setting for the next /start.
+    /// Return whether it was connected.
+    pub async fn disconnect_chat(&self, chat_id: i64) -> Result<bool> {
+        self.store.delete_destination_chat_id(&chat_id.to_string()).await
     }
 
     /// Return the poll interval, which falls back to the default before the first save.

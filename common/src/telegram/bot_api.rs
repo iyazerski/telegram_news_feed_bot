@@ -7,6 +7,8 @@ use serde::Deserialize;
 use serde::de::{DeserializeOwned, IgnoredAny};
 use serde_json::{Value, json};
 
+/// The updates the bot asks Telegram for: commands, and the bot being blocked or removed from a chat.
+const ALLOWED_UPDATES: [&str; 2] = ["message", "my_chat_member"];
 // reqwest limits whole requests, uploads included, so media of up to 50 MB gets more time than a text message.
 const MEDIA_UPLOAD_TIMEOUT: Duration = Duration::from_secs(300);
 
@@ -54,11 +56,42 @@ impl TelegramUpload {
     }
 }
 
-/// One incoming bot update. The bot asks Telegram only for messages.
+/// One incoming bot update. The bot asks Telegram only for messages and changes of its own membership.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Update {
     pub update_id: i64,
     pub message: Option<Message>,
+    pub my_chat_member: Option<ChatMemberUpdated>,
+}
+
+/// A change of the bot's membership in a chat, as when a user blocks or restarts the bot.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ChatMemberUpdated {
+    pub chat: Chat,
+    pub new_chat_member: ChatMember,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ChatMember {
+    pub status: ChatMemberStatus,
+}
+
+/// Whether the bot can still send to a chat. A private chat that blocks the bot reports `Kicked`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChatMemberStatus {
+    Left,
+    Kicked,
+    /// Any status that keeps the bot in the chat.
+    #[serde(other)]
+    Present,
+}
+
+impl ChatMemberStatus {
+    /// Return whether the bot can no longer send messages to the chat.
+    pub fn is_gone(self) -> bool {
+        matches!(self, Self::Left | Self::Kicked)
+    }
 }
 
 /// A message sent to the bot.
@@ -113,17 +146,17 @@ impl TelegramBotApi {
         })
     }
 
-    /// Wait up to `wait` for message updates from `offset` on, which also confirms the updates before it.
+    /// Wait up to `wait` for updates from `offset` on, which also confirms the updates before it.
     pub async fn get_updates(&self, offset: i64, wait: Duration) -> Result<Vec<Update>, TelegramError> {
         let method = "getUpdates";
-        let payload = json!({"offset": offset, "timeout": wait.as_secs(), "allowed_updates": ["message"]});
+        let payload = json!({"offset": offset, "timeout": wait.as_secs(), "allowed_updates": ALLOWED_UPDATES});
         // Telegram holds a long poll open for `wait`, so the request may take that long before its own timeout.
         self.send(method, self.request(method).timeout(wait + self.timeout).json(&payload)).await
     }
 
-    /// Have Telegram deliver message updates to `url`, sending `secret_token` in each request's header.
+    /// Have Telegram deliver updates to `url`, sending `secret_token` in each request's header.
     pub async fn set_webhook(&self, url: &str, secret_token: &str) -> Result<(), TelegramError> {
-        let payload = json!({"url": url, "secret_token": secret_token, "allowed_updates": ["message"]});
+        let payload = json!({"url": url, "secret_token": secret_token, "allowed_updates": ALLOWED_UPDATES});
         self.post("setWebhook", payload).await
     }
 
@@ -294,23 +327,49 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_updates_asks_for_messages_after_the_offset_and_reads_them() {
-        let body = r#"{"ok": true, "result": [
-            {"update_id": 7, "message": {"message_id": 1, "chat": {"id": 42, "type": "private"},
-                "from": {"id": 5, "is_bot": false, "first_name": "A"}, "text": "/start"}},
-            {"update_id": 8, "edited_message": {}}
-        ]}"#;
+    async fn get_updates_asks_for_messages_and_membership_changes_after_the_offset_and_reads_them() {
+        let membership = |status: &str| {
+            format!(
+                r#"{{"chat": {{"id": 42, "type": "private"}}, "from": {{"id": 42, "is_bot": false, "first_name": "A"}},
+                    "date": 1, "old_chat_member": {{"status": "member", "user": {{"id": 1, "is_bot": true}}}},
+                    "new_chat_member": {{"status": "{status}", "user": {{"id": 1, "is_bot": true}}}}}}"#
+            )
+        };
+        let body = format!(
+            r#"{{"ok": true, "result": [
+                {{"update_id": 7, "message": {{"message_id": 1, "chat": {{"id": 42, "type": "private"}},
+                    "from": {{"id": 5, "is_bot": false, "first_name": "A"}}, "text": "/start"}}}},
+                {{"update_id": 8, "edited_message": {{}}}},
+                {{"update_id": 9, "my_chat_member": {}}},
+                {{"update_id": 10, "my_chat_member": {}}}
+            ]}}"#,
+            membership("kicked"),
+            membership("administrator"),
+        );
         let (url, server) = serve(vec![CannedResponse::new(200, "application/json", body)]).await;
 
         let updates = api(url).get_updates(7, Duration::from_secs(1)).await.unwrap();
 
         let start = Message { chat: Chat { id: 42 }, from: Some(User { id: 5 }), text: Some("/start".to_owned()) };
-        assert_eq!(updates, [Update { update_id: 7, message: Some(start) }, Update { update_id: 8, message: None }]);
+        let membership = |update_id, status| Update {
+            update_id,
+            message: None,
+            my_chat_member: Some(ChatMemberUpdated { chat: Chat { id: 42 }, new_chat_member: ChatMember { status } }),
+        };
+        assert_eq!(
+            updates,
+            [
+                Update { update_id: 7, message: Some(start), my_chat_member: None },
+                Update { update_id: 8, message: None, my_chat_member: None },
+                membership(9, ChatMemberStatus::Kicked),
+                membership(10, ChatMemberStatus::Present),
+            ]
+        );
         let requests = server.await.unwrap();
         let (_, payload) = requests[0].split_once("\r\n\r\n").unwrap();
         assert_eq!(
             serde_json::from_str::<Value>(payload).unwrap(),
-            json!({"offset": 7, "timeout": 1, "allowed_updates": ["message"]})
+            json!({"offset": 7, "timeout": 1, "allowed_updates": ["message", "my_chat_member"]})
         );
     }
 

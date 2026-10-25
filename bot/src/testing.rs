@@ -60,6 +60,15 @@ impl FeedStore for FakeStore {
         Ok(())
     }
 
+    async fn delete_destination_chat_id(&self, chat_id: &str) -> Result<bool> {
+        let mut state = self.state.lock().unwrap();
+        let connected = state.destination.as_deref() == Some(chat_id);
+        if connected {
+            state.destination = None;
+        }
+        Ok(connected)
+    }
+
     async fn load_poll_interval_seconds(&self) -> Result<Option<u64>> {
         Ok(self.state.lock().unwrap().poll_interval_seconds)
     }

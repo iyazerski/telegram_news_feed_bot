@@ -30,6 +30,15 @@ impl FeedStore for PostgresBotStore {
         store_setting(&self.pool, DESTINATION_CHAT_ID_KEY, chat_id).await
     }
 
+    async fn delete_destination_chat_id(&self, chat_id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM app_setting WHERE key = $1 AND value = $2")
+            .bind(DESTINATION_CHAT_ID_KEY)
+            .bind(chat_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     async fn load_poll_interval_seconds(&self) -> Result<Option<u64>> {
         let values = load_settings(&self.pool, &[POLL_INTERVAL_SECONDS_KEY]).await?;
         values

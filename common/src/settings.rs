@@ -7,7 +7,8 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use sqlx::postgres::PgConnection;
 use sqlx::{Executor, Postgres, Row};
 
-/// The bot chat that receives posts and recaps, which the bot stores on /start.
+/// The bot chat that receives posts and recaps. The bot stores it on /start and deletes it when the chat blocks or
+/// removes the bot, which pauses the feed and recaps until the next /start.
 pub const DESTINATION_CHAT_ID_KEY: &str = "destination_chat_id";
 pub const POLL_INTERVAL_SECONDS_KEY: &str = "poll_interval_seconds";
 const RECAP_TOPICS_KEY: &str = "recap_topics";

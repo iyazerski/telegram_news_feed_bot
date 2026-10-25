@@ -35,6 +35,8 @@ Web search needs a Tavily API key. CD reads it from the `TAVILY_API_KEY` GitHub 
 /start
 ```
 
+`/start` connects your chat to the feed and recaps. Blocking the bot pauses both: the feed stops checking channels, and the recapper stops generating recaps. Your channels and settings stay saved, and pressing Start again resumes where the feed left off.
+
 ## Local Development
 
 ```bash
