@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use common::telegram::bot_api::{TelegramBotApi, TelegramError, TelegramUpload};
+use common::telegram::bot_api::{LinkPreview, TelegramBotApi, TelegramError, TelegramUpload};
 use futures::future::join_all;
 use tracing::{error, info, warn};
 
@@ -12,7 +12,7 @@ use crate::infrastructure::telegram::web_preview_client::PreviewUnavailableError
 use crate::infrastructure::telegram::web_preview_parser::parse_channel_preview;
 
 // Channels per database page. Each page's previews are fetched together, which also caps concurrent requests.
-const CHANNEL_PAGE_SIZE: i64 = 10;
+const CHANNEL_PAGE_SIZE: usize = 10;
 
 /// The stored destination chat and poll interval.
 pub struct FeedSettings {
@@ -25,7 +25,7 @@ pub trait FeedStore {
     /// Read the destination chat and the poll interval, which falls back to the default before the first save.
     async fn load_settings(&self, default_poll_interval_seconds: u64) -> Result<FeedSettings>;
     /// Return up to `limit` active channels after the `after` username, in username order.
-    async fn list_active_channels(&self, after: &str, limit: i64) -> Result<Vec<SourceChannel>>;
+    async fn list_active_channels(&self, after: &str, limit: usize) -> Result<Vec<SourceChannel>>;
     /// Move an active channel's cursor forward to `message_id`, and return false when the channel is not active.
     async fn commit_post(&self, source_channel: &str, message_id: i32) -> Result<bool>;
 }
@@ -56,7 +56,7 @@ pub trait FeedMessenger {
 
 impl FeedMessenger for TelegramBotApi {
     async fn send_html_message(&self, chat_id: &str, text: &str) -> Result<(), TelegramError> {
-        TelegramBotApi::send_html_message(self, chat_id, text, false).await
+        TelegramBotApi::send_html_message(self, chat_id, text, LinkPreview::Show).await
     }
 
     async fn send_photo(&self, chat_id: &str, photo: TelegramUpload, caption: &str) -> Result<(), TelegramError> {
@@ -78,7 +78,7 @@ impl FeedMessenger for TelegramBotApi {
 }
 
 /// Finds new posts on subscribed channels' web previews and reposts them to the bot chat in order.
-pub struct PostForwardingService<S, P, D, M> {
+pub struct PostForwarder<S, P, D, M> {
     store: S,
     previews: P,
     media: D,
@@ -86,7 +86,7 @@ pub struct PostForwardingService<S, P, D, M> {
     default_poll_interval_seconds: u64,
 }
 
-impl<S: FeedStore, P: PreviewSource, D: MediaSource, M: FeedMessenger> PostForwardingService<S, P, D, M> {
+impl<S: FeedStore, P: PreviewSource, D: MediaSource, M: FeedMessenger> PostForwarder<S, P, D, M> {
     /// Create the forwarding use case over its storage, preview, media, and messaging boundaries.
     pub fn new(store: S, previews: P, media: D, messenger: M, default_poll_interval_seconds: u64) -> Self {
         Self { store, previews, media, messenger, default_poll_interval_seconds }
@@ -113,7 +113,7 @@ impl<S: FeedStore, P: PreviewSource, D: MediaSource, M: FeedMessenger> PostForwa
                 self.forward_channel_posts(destination, &channel.username, posts).await?;
             }
             match channels.last() {
-                Some(last) if channels.len() as i64 == CHANNEL_PAGE_SIZE => after.clone_from(&last.username),
+                Some(last) if channels.len() == CHANNEL_PAGE_SIZE => after.clone_from(&last.username),
                 _ => return Ok(()),
             }
         }
@@ -236,7 +236,7 @@ mod tests {
             Ok(FeedSettings { destination: self.destination.clone(), poll_interval: INTERVAL })
         }
 
-        async fn list_active_channels(&self, after: &str, limit: i64) -> Result<Vec<SourceChannel>> {
+        async fn list_active_channels(&self, after: &str, limit: usize) -> Result<Vec<SourceChannel>> {
             let mut channels: Vec<SourceChannel> = self
                 .channels
                 .lock()
@@ -249,7 +249,7 @@ mod tests {
                 })
                 .collect();
             channels.sort_by(|left, right| left.username.cmp(&right.username));
-            channels.truncate(limit as usize);
+            channels.truncate(limit);
             self.page_sizes.lock().unwrap().push(channels.len());
             Ok(channels)
         }
@@ -345,10 +345,10 @@ mod tests {
         }
     }
 
-    type Service = PostForwardingService<FakeStore, FakePreviews, FakeMedia, FakeMessenger>;
+    type Service = PostForwarder<FakeStore, FakePreviews, FakeMedia, FakeMessenger>;
 
     fn service(store: FakeStore, previews: FakePreviews, media: FakeMedia, messenger: FakeMessenger) -> Service {
-        PostForwardingService::new(store, previews, media, messenger, 300)
+        PostForwarder::new(store, previews, media, messenger, 300)
     }
 
     fn upload(index: usize, is_video: bool) -> TelegramUpload {

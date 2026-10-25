@@ -7,7 +7,7 @@ use common::settings::{
 use sqlx::Row;
 use sqlx::postgres::PgPool;
 
-use crate::domain::recaps::RecapStory;
+use crate::domain::recaps::{RecapStory, SentStory};
 use crate::use_cases::generate_recaps::{RecapStore, StoredRecap};
 
 // One loop does one thing at a time; the second connection only covers a reconnect.
@@ -34,12 +34,12 @@ impl RecapStore for PostgresRecapStore {
         Ok(StoredRecap { schedule, destination: values.remove(DESTINATION_CHAT_ID_KEY) })
     }
 
-    async fn load_sent_stories(&self, limit: i64) -> Result<Vec<(String, String)>> {
+    async fn load_sent_stories(&self, limit: usize) -> Result<Vec<SentStory>> {
         let rows = sqlx::query("SELECT title, url FROM sent_recap_story ORDER BY sent_at DESC LIMIT $1")
-            .bind(limit)
+            .bind(i64::try_from(limit)?)
             .fetch_all(&self.pool)
             .await?;
-        Ok(rows.into_iter().map(|row| (row.get("title"), row.get("url"))).collect())
+        Ok(rows.into_iter().map(|row| SentStory { title: row.get("title"), url: row.get("url") }).collect())
     }
 
     async fn commit_recap(

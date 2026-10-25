@@ -8,25 +8,29 @@ use common::telegram::bot_api::TelegramBotApi;
 use tokio::net::TcpListener;
 use tracing::{info, warn};
 
-use crate::config::{Configs, UpdateMode};
+use crate::config::{Configs, UpdateMode, WebhookTarget};
 use crate::entrypoints::commands::CommandHandler;
 use crate::entrypoints::http::mini_app::{MiniApp, MiniAppAuth};
 use crate::entrypoints::http::{Webhook, create_app};
 use crate::entrypoints::polling::UpdatePoller;
 use crate::infrastructure::database::PostgresBotStore;
-use crate::use_cases::manage_feed::FeedService;
-use crate::use_cases::manage_recaps::RecapService;
+use crate::use_cases::manage_feed::Feed;
+use crate::use_cases::manage_recaps::Recaps;
 
 /// Wire the bot, receive updates the configured way, and serve the Mini App until the process is told to stop.
 pub async fn run_forever(configs: Configs) -> Result<()> {
-    configs.require_service_settings()?;
+    // Fail fast on missing webhook settings, before anything starts.
+    let webhook_target = match configs.bot_update_mode {
+        UpdateMode::Webhook => Some(configs.webhook_target()?),
+        UpdateMode::Polling => None,
+    };
     let store = Arc::new(PostgresBotStore::connect_lazy(&configs.database_url)?);
     let telegram = TelegramBotApi::new(&configs.bot_token, configs.telegram_http_timeout())?;
-    let feed = || FeedService::new(Arc::clone(&store), configs.default_poll_interval_seconds);
+    let feed = || Feed::new(Arc::clone(&store), configs.default_poll_interval_seconds);
     let commands = CommandHandler::new(feed(), telegram.clone(), configs.admin_user_id);
     let mini_app = MiniApp::new(
         feed(),
-        RecapService::new(Arc::clone(&store), configs.default_recap_interval_seconds),
+        Recaps::new(Arc::clone(&store), configs.default_recap_interval_seconds),
         MiniAppAuth::new(&configs.bot_token, configs.admin_user_id, configs.mini_app_auth_max_age_seconds),
     )
     .into_router();
@@ -35,19 +39,14 @@ pub async fn run_forever(configs: Configs) -> Result<()> {
 
     let listener = TcpListener::bind((configs.bot_webhook_listen_host.as_str(), configs.bot_webhook_port)).await?;
     info!("Bot HTTP service started on {}", listener.local_addr()?);
-    match configs.bot_update_mode {
-        UpdateMode::Webhook => {
-            let webhook_url = configs.webhook_url()?;
-            telegram.set_webhook(&webhook_url, &configs.bot_webhook_secret_token).await?;
-            info!("Receiving Telegram updates at {webhook_url}");
-            let webhook = Webhook {
-                path: configs.bot_webhook_path.clone(),
-                secret_token: configs.bot_webhook_secret_token.clone(),
-                commands,
-            };
+    match webhook_target {
+        Some(WebhookTarget { url, secret_token }) => {
+            telegram.set_webhook(&url, &secret_token).await?;
+            info!("Receiving Telegram updates at {url}");
+            let webhook = Webhook { path: configs.bot_webhook_path.clone(), secret_token, commands };
             axum::serve(listener, app.merge(webhook.into_router())).with_graceful_shutdown(shutdown_signal()).await?;
         }
-        UpdateMode::Polling => {
+        None => {
             if configs.bot_delete_webhook_on_polling_start {
                 telegram.delete_webhook().await?;
             }

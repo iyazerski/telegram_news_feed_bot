@@ -5,6 +5,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
 /// One canned HTTP answer.
+#[derive(Debug)]
 pub struct CannedResponse {
     status: u16,
     content_type: &'static str,

@@ -9,11 +9,11 @@ use tracing::{error, info};
 use crate::config::Configs;
 use crate::infrastructure::ai::researcher::ChatGptResearcher;
 use crate::infrastructure::database::PostgresRecapStore;
-use crate::use_cases::generate_recaps::{NewsRecapService, RecapPolicy};
+use crate::use_cases::generate_recaps::{RecapGenerator, RecapPolicy};
 
 /// Wire the recap service and check its schedule until the process is told to stop.
 pub async fn run_forever(configs: Configs) -> Result<()> {
-    let recaps = NewsRecapService::new(
+    let recaps = RecapGenerator::new(
         PostgresRecapStore::connect_lazy(&configs.database_url)?,
         ChatGptResearcher::new(
             &configs.recap_auth_dir,

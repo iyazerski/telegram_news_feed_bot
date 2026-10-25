@@ -1,3 +1,4 @@
+use std::fmt;
 use std::time::Duration;
 
 use reqwest::RequestBuilder;
@@ -28,6 +29,13 @@ impl TelegramError {
             Self::Http { .. } => true,
         }
     }
+}
+
+/// Whether Telegram shows a preview of the first link in a message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkPreview {
+    Show,
+    Hide,
 }
 
 /// One file uploaded through Bot API multipart form data.
@@ -88,6 +96,13 @@ pub struct TelegramBotApi {
     timeout: Duration,
 }
 
+impl fmt::Debug for TelegramBotApi {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // The base URL holds the bot token, so it stays out of debug output.
+        formatter.debug_struct("TelegramBotApi").field("timeout", &self.timeout).finish_non_exhaustive()
+    }
+}
+
 impl TelegramBotApi {
     /// Create a client whose requests give up after `timeout`, or later for long polls and media uploads.
     pub fn new(token: &str, timeout: Duration) -> anyhow::Result<Self> {
@@ -133,13 +148,13 @@ impl TelegramBotApi {
         &self,
         chat_id: &str,
         text: &str,
-        disable_web_page_preview: bool,
+        link_preview: LinkPreview,
     ) -> Result<(), TelegramError> {
         let payload = json!({
             "chat_id": chat_id,
             "text": text,
             "parse_mode": "HTML",
-            "disable_web_page_preview": disable_web_page_preview,
+            "disable_web_page_preview": link_preview == LinkPreview::Hide,
         });
         self.post("sendMessage", payload).await
     }

@@ -4,7 +4,7 @@ use anyhow::Result;
 use common::telegram::bot_api::{TelegramBotApi, TelegramError, Update};
 use tracing::error;
 
-use crate::use_cases::manage_feed::{FeedService, FeedStore};
+use crate::use_cases::manage_feed::{Feed, FeedStore};
 
 pub const HELP_TEXT: &str = "Your personal Telegram news feed is ready 📰
 Collect posts from public channels in one place, tune your sources, and keep the updates flowing automatically ✨
@@ -24,13 +24,13 @@ impl BotMessenger for TelegramBotApi {
 
 /// Answers the bot's text commands, which only the admin may use.
 pub struct CommandHandler<S, M> {
-    feed: FeedService<S>,
+    feed: Feed<S>,
     messenger: M,
     admin_user_id: i64,
 }
 
 impl<S: FeedStore, M: BotMessenger> CommandHandler<S, M> {
-    pub fn new(feed: FeedService<S>, messenger: M, admin_user_id: i64) -> Self {
+    pub fn new(feed: Feed<S>, messenger: M, admin_user_id: i64) -> Self {
         Self { feed, messenger, admin_user_id }
     }
 
@@ -96,7 +96,7 @@ pub mod tests {
     pub fn handler(store: &Arc<FakeStore>) -> (CommandHandler<FakeStore, FakeMessenger>, SentReplies) {
         let messenger = FakeMessenger::default();
         let sent = Arc::clone(&messenger.sent);
-        (CommandHandler::new(FeedService::new(Arc::clone(store), 300), messenger, ADMIN_ID), sent)
+        (CommandHandler::new(Feed::new(Arc::clone(store), 300), messenger, ADMIN_ID), sent)
     }
 
     pub fn text_update(update_id: i64, sender_id: i64, chat_id: i64, text: &str) -> Update {

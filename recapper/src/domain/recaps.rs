@@ -15,6 +15,13 @@ pub struct RecapStory {
     pub url: String,
 }
 
+/// A story that an earlier recap sent, which later recaps must not repeat.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SentStory {
+    pub title: String,
+    pub url: String,
+}
+
 /// Return a comparable article URL without fragments, tracking parameters, or a trailing slash.
 pub fn normalize_story_url(raw: &str) -> String {
     let Ok(url) = Url::parse(raw.trim()) else {

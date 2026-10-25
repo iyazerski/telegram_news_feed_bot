@@ -20,12 +20,12 @@ pub trait RecapStore: Send + Sync {
 }
 
 /// Manages the AI recap settings and when the recapper sends the next recap.
-pub struct RecapService<S> {
+pub struct Recaps<S> {
     store: Arc<S>,
     default_interval_seconds: i64,
 }
 
-impl<S: RecapStore> RecapService<S> {
+impl<S: RecapStore> Recaps<S> {
     /// Create the use case over the shared store.
     pub fn new(store: Arc<S>, default_interval_seconds: i64) -> Self {
         Self { store, default_interval_seconds }
@@ -89,8 +89,8 @@ mod tests {
         }
     }
 
-    fn service(store: &Arc<FakeStore>) -> RecapService<FakeStore> {
-        RecapService::new(Arc::clone(store), 21_600)
+    fn service(store: &Arc<FakeStore>) -> Recaps<FakeStore> {
+        Recaps::new(Arc::clone(store), 21_600)
     }
 
     #[tokio::test]

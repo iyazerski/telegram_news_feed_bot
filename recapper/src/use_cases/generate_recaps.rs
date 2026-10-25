@@ -1,12 +1,12 @@
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
 use common::settings::{RecapSchedule, RecapSettings};
-use common::telegram::bot_api::{TelegramBotApi, TelegramError};
+use common::telegram::bot_api::{LinkPreview, TelegramBotApi, TelegramError};
 use tracing::{error, info, warn};
 
 use crate::config::Configs;
-use crate::domain::recaps::{RecapStory, select_new_stories};
-use crate::infrastructure::ai::prompt::{build_news_recap_prompt, parse_news_recap_output};
+use crate::domain::recaps::{RecapStory, SentStory, select_new_stories};
+use crate::infrastructure::ai::prompt::{ParseRecapError, build_news_recap_prompt, parse_news_recap_output};
 use crate::infrastructure::ai::researcher::ResearchError;
 use crate::infrastructure::telegram::recap_formatter::build_recap_message;
 
@@ -26,8 +26,8 @@ pub struct StoredRecap {
 pub trait RecapStore {
     /// Read the recap settings, next run time, and destination chat.
     async fn load_recap(&self, default_interval_seconds: i64) -> Result<StoredRecap>;
-    /// Return the newest sent stories as (title, url) pairs.
-    async fn load_sent_stories(&self, limit: i64) -> Result<Vec<(String, String)>>;
+    /// Return up to `limit` sent stories, newest first.
+    async fn load_sent_stories(&self, limit: usize) -> Result<Vec<SentStory>>;
     /// Remember sent stories, prune history older than `prune_before`, and schedule the next recap, atomically.
     async fn commit_recap(
         &self,
@@ -50,13 +50,23 @@ pub trait RecapResearcher {
 
 /// Where recap messages go.
 pub trait RecapMessenger {
-    async fn send_html_message(&self, chat_id: &str, text: &str, disable_preview: bool) -> Result<(), TelegramError>;
+    async fn send_html_message(
+        &self,
+        chat_id: &str,
+        text: &str,
+        link_preview: LinkPreview,
+    ) -> Result<(), TelegramError>;
     async fn send_text_message(&self, chat_id: &str, text: &str) -> Result<(), TelegramError>;
 }
 
 impl RecapMessenger for TelegramBotApi {
-    async fn send_html_message(&self, chat_id: &str, text: &str, disable_preview: bool) -> Result<(), TelegramError> {
-        TelegramBotApi::send_html_message(self, chat_id, text, disable_preview).await
+    async fn send_html_message(
+        &self,
+        chat_id: &str,
+        text: &str,
+        link_preview: LinkPreview,
+    ) -> Result<(), TelegramError> {
+        TelegramBotApi::send_html_message(self, chat_id, text, link_preview).await
     }
 
     async fn send_text_message(&self, chat_id: &str, text: &str) -> Result<(), TelegramError> {
@@ -68,8 +78,17 @@ impl RecapMessenger for TelegramBotApi {
 struct DueRecap {
     settings: RecapSettings,
     destination: String,
-    /// Newest first, as (title, url) pairs.
-    sent_stories: Vec<(String, String)>,
+    /// Newest first.
+    sent_stories: Vec<SentStory>,
+}
+
+/// Why a due recap produced no stories to send.
+#[derive(Debug, thiserror::Error)]
+enum GenerationError {
+    #[error(transparent)]
+    Research(#[from] ResearchError),
+    #[error(transparent)]
+    Output(#[from] ParseRecapError),
 }
 
 /// The recap limits the use case needs from the service settings.
@@ -77,7 +96,7 @@ pub struct RecapPolicy {
     pub default_interval_seconds: i64,
     pub retry_delay: Duration,
     pub story_count: usize,
-    pub history_size: i64,
+    pub history_size: usize,
     pub history_retention: Duration,
 }
 
@@ -95,14 +114,14 @@ impl RecapPolicy {
 }
 
 /// Researches, formats, and sends AI news recaps on their schedule.
-pub struct NewsRecapService<S, R, M> {
+pub struct RecapGenerator<S, R, M> {
     store: S,
     researcher: R,
     messenger: M,
     policy: RecapPolicy,
 }
 
-impl<S: RecapStore, R: RecapResearcher, M: RecapMessenger> NewsRecapService<S, R, M> {
+impl<S: RecapStore, R: RecapResearcher, M: RecapMessenger> RecapGenerator<S, R, M> {
     /// Create the recap use case over its storage, research, and messaging boundaries.
     pub fn new(store: S, researcher: R, messenger: M, policy: RecapPolicy) -> Self {
         Self { store, researcher, messenger, policy }
@@ -122,16 +141,12 @@ impl<S: RecapStore, R: RecapResearcher, M: RecapMessenger> NewsRecapService<S, R
             self.policy.story_count,
             &due.sent_stories,
         );
-        let stories = match self.researcher.research(&prompt).await {
-            Ok(output) => parse_news_recap_output(&output),
-            Err(research_error) => Err(research_error.to_string()),
-        };
-        let stories = match stories {
+        let stories = match self.generate_stories(&prompt).await {
             Ok(stories) => stories,
             Err(generation_error) => return self.handle_generation_failure(&due, now, &generation_error).await,
         };
 
-        let sent_urls = due.sent_stories.iter().map(|(_, url)| url.as_str());
+        let sent_urls = due.sent_stories.iter().map(|story| story.url.as_str());
         let stories = select_new_stories(stories, sent_urls, self.policy.story_count);
         if stories.is_empty() {
             // Nothing new is worth a message, so stay quiet until the next regular recap.
@@ -139,7 +154,9 @@ impl<S: RecapStore, R: RecapResearcher, M: RecapMessenger> NewsRecapService<S, R
             return self.store.schedule(now + interval).await;
         }
         let message = build_recap_message(&stories, &due.settings.topics);
-        if let Err(delivery_error) = self.messenger.send_html_message(&due.destination, &message, true).await {
+        if let Err(delivery_error) =
+            self.messenger.send_html_message(&due.destination, &message, LinkPreview::Hide).await
+        {
             if delivery_error.is_retryable() {
                 warn!("Recap delivery failed; retrying later: {delivery_error}");
                 return self.store.schedule(now + self.policy.retry_delay).await;
@@ -169,8 +186,19 @@ impl<S: RecapStore, R: RecapResearcher, M: RecapMessenger> NewsRecapService<S, R
         Ok(Some(DueRecap { settings, destination, sent_stories }))
     }
 
+    /// Research the prompt and parse the agent's reply into stories.
+    async fn generate_stories(&self, prompt: &str) -> Result<Vec<RecapStory>, GenerationError> {
+        let output = self.researcher.research(prompt).await?;
+        Ok(parse_news_recap_output(&output)?)
+    }
+
     /// Retry soon after transient failures, and alert once per interval when the ChatGPT sign-in is lost.
-    async fn handle_generation_failure(&self, due: &DueRecap, now: DateTime<Utc>, failure: &str) -> Result<()> {
+    async fn handle_generation_failure(
+        &self,
+        due: &DueRecap,
+        now: DateTime<Utc>,
+        failure: &GenerationError,
+    ) -> Result<()> {
         if self.researcher.is_signed_in().await {
             warn!("Recap generation failed; retrying later: {failure}");
             return self.store.schedule(now + self.policy.retry_delay).await;
@@ -254,10 +282,10 @@ mod tests {
             })
         }
 
-        async fn load_sent_stories(&self, limit: i64) -> Result<Vec<(String, String)>> {
+        async fn load_sent_stories(&self, limit: usize) -> Result<Vec<SentStory>> {
             let mut sent = self.sent.lock().unwrap().clone();
             sent.sort_by_key(|(_, _, sent_at)| std::cmp::Reverse(*sent_at));
-            Ok(sent.into_iter().take(limit as usize).map(|(title, url, _)| (title, url)).collect())
+            Ok(sent.into_iter().take(limit).map(|(title, url, _)| SentStory { title, url }).collect())
         }
 
         async fn commit_recap(
@@ -308,7 +336,7 @@ mod tests {
     #[derive(Default)]
     struct FakeMessenger {
         html_error: Option<fn() -> TelegramError>,
-        html_messages: Mutex<Vec<(String, String, bool)>>,
+        html_messages: Mutex<Vec<(String, String, LinkPreview)>>,
         text_messages: Mutex<Vec<(String, String)>>,
     }
 
@@ -317,12 +345,12 @@ mod tests {
             &self,
             chat_id: &str,
             text: &str,
-            disable_preview: bool,
+            link_preview: LinkPreview,
         ) -> Result<(), TelegramError> {
             if let Some(error) = self.html_error {
                 return Err(error());
             }
-            self.html_messages.lock().unwrap().push((chat_id.to_owned(), text.to_owned(), disable_preview));
+            self.html_messages.lock().unwrap().push((chat_id.to_owned(), text.to_owned(), link_preview));
             Ok(())
         }
 
@@ -345,8 +373,8 @@ mod tests {
     fn service(
         researcher: FakeResearcher,
         messenger: FakeMessenger,
-    ) -> NewsRecapService<FakeStore, FakeResearcher, FakeMessenger> {
-        NewsRecapService::new(FakeStore::due_now(), researcher, messenger, policy())
+    ) -> RecapGenerator<FakeStore, FakeResearcher, FakeMessenger> {
+        RecapGenerator::new(FakeStore::due_now(), researcher, messenger, policy())
     }
 
     #[tokio::test]
@@ -363,10 +391,10 @@ mod tests {
         assert!(prompts[0].contains("since 2026-10-19 18:00 UTC"));
         assert!(prompts[0].contains("- Old (https://news.example/old)"));
         let html_messages = recaps.messenger.html_messages.lock().unwrap();
-        let [(chat_id, message, disable_preview)] = html_messages.as_slice() else {
+        let [(chat_id, message, link_preview)] = html_messages.as_slice() else {
             panic!("expected one recap message, got {html_messages:?}");
         };
-        assert_eq!((chat_id.as_str(), *disable_preview), ("@dest", true));
+        assert_eq!((chat_id.as_str(), *link_preview), ("@dest", LinkPreview::Hide));
         assert!(message.contains("https://news.example/new"));
         assert!(!message.contains("https://news.example/old"));
         assert_eq!(recaps.store.sent_urls(), ["https://news.example/old", "https://news.example/new"]);

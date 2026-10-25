@@ -30,12 +30,12 @@ pub struct ChannelPage {
 }
 
 /// Manages where the feed goes, how often it polls, and which channels it follows.
-pub struct FeedService<S> {
+pub struct Feed<S> {
     store: Arc<S>,
     default_poll_interval_seconds: u64,
 }
 
-impl<S: FeedStore> FeedService<S> {
+impl<S: FeedStore> Feed<S> {
     /// Create the use case over the shared store.
     pub fn new(store: Arc<S>, default_poll_interval_seconds: u64) -> Self {
         Self { store, default_poll_interval_seconds }
@@ -91,8 +91,8 @@ mod tests {
     use super::*;
     use crate::testing::FakeStore;
 
-    fn service(store: &Arc<FakeStore>) -> FeedService<FakeStore> {
-        FeedService::new(Arc::clone(store), 300)
+    fn service(store: &Arc<FakeStore>) -> Feed<FakeStore> {
+        Feed::new(Arc::clone(store), 300)
     }
 
     #[tokio::test]

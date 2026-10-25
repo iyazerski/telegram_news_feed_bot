@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -43,7 +44,7 @@ pub struct ChatGptResearcher {
 
 impl ChatGptResearcher {
     /// Create a researcher that reads and refreshes the ChatGPT sign-in kept in `auth_dir`.
-    pub fn new(auth_dir: &str, tavily_api_key: &str, timeout: Duration) -> anyhow::Result<Self> {
+    pub fn new(auth_dir: &Path, tavily_api_key: &str, timeout: Duration) -> anyhow::Result<Self> {
         Ok(Self {
             // The service never starts a device flow itself; `recapper login` signs in.
             authenticator: build_authenticator(auth_dir, false),
@@ -92,18 +93,18 @@ impl RecapResearcher for ChatGptResearcher {
 }
 
 /// Sign in to ChatGPT with a device code shown on stdout, and keep the credential in `auth_dir`.
-pub async fn sign_in(auth_dir: &str) -> anyhow::Result<()> {
+pub async fn sign_in(auth_dir: &Path) -> anyhow::Result<()> {
     let authenticator =
         build_authenticator(auth_dir, true).with_device_code_handler(DeviceCodeHandler::new(|prompt| {
             println!("Open {} and enter the code {}", prompt.verification_uri, prompt.user_code);
         }));
     let http: DynHttpClient = rig::rig_reqwest::shared();
     authenticator.sign_in_with_device_code(&http).await?;
-    println!("Signed in to ChatGPT. The credential is in {auth_dir}.");
+    println!("Signed in to ChatGPT. The credential is in {}.", auth_dir.display());
     Ok(())
 }
 
-fn build_authenticator(auth_dir: &str, allow_device_flow: bool) -> Authenticator {
+fn build_authenticator(auth_dir: &Path, allow_device_flow: bool) -> Authenticator {
     Authenticator::new(
         AuthSource::OAuth,
         FileTokenStore::new(auth_dir),

@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -25,14 +26,14 @@ pub struct Configs {
     #[serde(default = "default_recap_story_count")]
     pub recap_story_count: usize,
     #[serde(default = "default_recap_history_size")]
-    pub recap_history_size: i64,
+    pub recap_history_size: usize,
     #[serde(default = "default_recap_history_retention_days")]
     pub recap_history_retention_days: i64,
     #[serde(default = "default_recap_timeout_seconds")]
     pub recap_timeout_seconds: u64,
     /// Directory that keeps the ChatGPT sign-in, which the recapper refreshes. Production mounts a volume here.
     #[serde(default = "default_recap_auth_dir")]
-    pub recap_auth_dir: String,
+    pub recap_auth_dir: PathBuf,
     pub recap_tavily_api_key: String,
 }
 
@@ -60,7 +61,7 @@ fn default_recap_story_count() -> usize {
     5
 }
 
-fn default_recap_history_size() -> i64 {
+fn default_recap_history_size() -> usize {
     50
 }
 
@@ -72,6 +73,6 @@ fn default_recap_timeout_seconds() -> u64 {
     600
 }
 
-fn default_recap_auth_dir() -> String {
-    ".recapper-auth".to_owned()
+fn default_recap_auth_dir() -> PathBuf {
+    PathBuf::from(".recapper-auth")
 }

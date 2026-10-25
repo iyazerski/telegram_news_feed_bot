@@ -3,7 +3,27 @@ use common::settings::RecapSettings;
 use serde::Deserialize;
 use url::Url;
 
-use crate::domain::recaps::RecapStory;
+use crate::domain::recaps::{RecapStory, SentStory};
+
+// Field limits keep one story well inside a Telegram message and reject runaway model output.
+const MAX_EMOJI_CHARS: usize = 16;
+const MAX_TITLE_CHARS: usize = 300;
+const MAX_SUMMARY_CHARS: usize = 1000;
+const MAX_SOURCE_NAME_CHARS: usize = 120;
+const MAX_URL_BYTES: usize = 2000;
+
+/// Why the agent's reply is not a usable recap.
+#[derive(Debug, thiserror::Error)]
+pub enum ParseRecapError {
+    #[error("the reply does not contain a JSON object")]
+    MissingJson,
+    #[error("the reply is not a valid recap: {0}")]
+    InvalidJson(serde_json::Error),
+    #[error("the reply is not a valid recap: {field} must have 1 to {max_chars} characters")]
+    InvalidLength { field: &'static str, max_chars: usize },
+    #[error("the reply is not a valid recap: {0} is not an http(s) URL")]
+    InvalidUrl(String),
+}
 
 #[derive(Deserialize)]
 struct RecapStoryOutput {
@@ -25,10 +45,10 @@ pub fn build_news_recap_prompt(
     now: DateTime<Utc>,
     since: DateTime<Utc>,
     story_count: usize,
-    sent_stories: &[(String, String)],
+    sent_stories: &[SentStory],
 ) -> String {
     let topics: Vec<String> = settings.topics.iter().map(|topic| format!("- {topic}")).collect();
-    let sent: Vec<String> = sent_stories.iter().map(|(title, url)| format!("- {title} ({url})")).collect();
+    let sent: Vec<String> = sent_stories.iter().map(|story| format!("- {} ({})", story.title, story.url)).collect();
     let sent = if sent.is_empty() { "- none".to_owned() } else { sent.join("\n") };
     let topics = topics.join("\n");
     let language = &settings.language;
@@ -62,24 +82,23 @@ Return {{"stories": []}} when nothing important and new happened in the time win
 }
 
 /// Parse the agent's recap reply into stories, tolerating text around the JSON object.
-pub fn parse_news_recap_output(output: &str) -> Result<Vec<RecapStory>, String> {
+pub fn parse_news_recap_output(output: &str) -> Result<Vec<RecapStory>, ParseRecapError> {
     let json = output
         .find('{')
         .zip(output.rfind('}'))
         .filter(|(start, end)| start < end)
         .map(|(start, end)| &output[start..=end])
-        .ok_or_else(|| "the reply does not contain a JSON object".to_owned())?;
-    let recap: RecapOutput =
-        serde_json::from_str(json).map_err(|error| format!("the reply is not a valid recap: {error}"))?;
+        .ok_or(ParseRecapError::MissingJson)?;
+    let recap: RecapOutput = serde_json::from_str(json).map_err(ParseRecapError::InvalidJson)?;
     recap
         .stories
         .into_iter()
         .map(|story| {
             Ok(RecapStory {
-                emoji: bounded("emoji", &story.emoji, 16)?,
-                title: bounded("title", &story.title, 300)?,
-                summary: bounded("summary", &story.summary, 1000)?,
-                source_name: bounded("source_name", &story.source_name, 120)?,
+                emoji: bounded("emoji", &story.emoji, MAX_EMOJI_CHARS)?,
+                title: bounded("title", &story.title, MAX_TITLE_CHARS)?,
+                summary: bounded("summary", &story.summary, MAX_SUMMARY_CHARS)?,
+                source_name: bounded("source_name", &story.source_name, MAX_SOURCE_NAME_CHARS)?,
                 url: http_url(&story.url)?,
             })
         })
@@ -87,23 +106,23 @@ pub fn parse_news_recap_output(output: &str) -> Result<Vec<RecapStory>, String> 
 }
 
 /// Return the trimmed value when it has between 1 and `max_chars` characters.
-fn bounded(field: &str, value: &str, max_chars: usize) -> Result<String, String> {
+fn bounded(field: &'static str, value: &str, max_chars: usize) -> Result<String, ParseRecapError> {
     let value = value.trim();
     let length = value.chars().count();
     if length == 0 || length > max_chars {
-        return Err(format!("the reply is not a valid recap: {field} must have 1 to {max_chars} characters"));
+        return Err(ParseRecapError::InvalidLength { field, max_chars });
     }
     Ok(value.to_owned())
 }
 
 /// Return the URL when it is a whitespace-free http(s) link, so the Telegram link cannot run script.
-fn http_url(value: &str) -> Result<String, String> {
+fn http_url(value: &str) -> Result<String, ParseRecapError> {
     // Url::parse strips and encodes whitespace, so it is rejected before parsing.
-    let is_http_url = value.len() <= 2000
+    let is_http_url = value.len() <= MAX_URL_BYTES
         && !value.chars().any(char::is_whitespace)
         && Url::parse(value).is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.has_host());
     if !is_http_url {
-        return Err(format!("the reply is not a valid recap: {value} is not an http(s) URL"));
+        return Err(ParseRecapError::InvalidUrl(value.to_owned()));
     }
     Ok(value.to_owned())
 }
@@ -128,7 +147,7 @@ mod tests {
             Utc.with_ymd_and_hms(2026, 10, 20, 18, 0, 0).unwrap(),
             Utc.with_ymd_and_hms(2026, 10, 19, 18, 0, 0).unwrap(),
             5,
-            &[("Old story".to_owned(), "https://news.example/old".to_owned())],
+            &[SentStory { title: "Old story".to_owned(), url: "https://news.example/old".to_owned() }],
         );
 
         assert!(prompt.contains("Current date and time: 2026-10-20 18:00 UTC"));
@@ -157,7 +176,7 @@ mod tests {
             }]
         );
         let invalid = parse_news_recap_output(&output.replace("https://reuters.example/launch", "javascript:alert(1)"));
-        assert!(invalid.unwrap_err().contains("not a valid recap"));
-        assert!(parse_news_recap_output("No news today.").unwrap_err().contains("does not contain a JSON object"));
+        assert!(matches!(invalid, Err(ParseRecapError::InvalidUrl(url)) if url == "javascript:alert(1)"));
+        assert!(matches!(parse_news_recap_output("No news today."), Err(ParseRecapError::MissingJson)));
     }
 }

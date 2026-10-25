@@ -3,7 +3,7 @@ use std::time::Duration;
 use anyhow::{Result, bail};
 use common::config::{
     default_database_url, default_log_level, default_poll_interval_seconds, default_recap_interval_seconds,
-    default_telegram_http_timeout_seconds,
+    default_telegram_http_timeout_seconds, non_empty,
 };
 use serde::Deserialize;
 
@@ -18,6 +18,13 @@ pub enum UpdateMode {
     Webhook,
 }
 
+/// Where Telegram delivers updates in webhook mode, and the secret that proves a delivery came from Telegram.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebhookTarget {
+    pub url: String,
+    pub secret_token: String,
+}
+
 /// Bot settings, read from `TELEGRAM_NEWS_*` variables.
 #[derive(Debug, Deserialize)]
 pub struct Configs {
@@ -28,8 +35,8 @@ pub struct Configs {
     pub admin_user_id: i64,
     #[serde(default = "default_log_level")]
     pub log_level: String,
-    #[serde(default)]
-    pub public_host: String,
+    #[serde(default, deserialize_with = "non_empty")]
+    pub public_host: Option<String>,
     #[serde(default)]
     pub bot_update_mode: UpdateMode,
     #[serde(default)]
@@ -40,12 +47,12 @@ pub struct Configs {
     pub bot_webhook_path: String,
     #[serde(default = "default_bot_webhook_port")]
     pub bot_webhook_port: u16,
-    #[serde(default)]
-    pub bot_webhook_secret_token: String,
-    #[serde(default)]
-    pub bot_webhook_url: String,
-    #[serde(default)]
-    pub mini_app_url: String,
+    #[serde(default, deserialize_with = "non_empty")]
+    pub bot_webhook_secret_token: Option<String>,
+    #[serde(default, deserialize_with = "non_empty")]
+    pub bot_webhook_url: Option<String>,
+    #[serde(default, deserialize_with = "non_empty")]
+    pub mini_app_url: Option<String>,
     #[serde(default = "default_mini_app_auth_max_age_seconds")]
     pub mini_app_auth_max_age_seconds: i64,
     #[serde(default = "default_bot_configure_menu_button")]
@@ -70,35 +77,29 @@ impl Configs {
         common::config::load()
     }
 
-    /// Fail fast on settings the bot cannot run without.
-    pub fn require_service_settings(&self) -> Result<()> {
-        if self.bot_update_mode == UpdateMode::Webhook {
-            // Without the secret, anyone who finds the webhook URL could send the bot fake updates.
-            if self.bot_webhook_secret_token.is_empty() {
-                bail!("TELEGRAM_NEWS_BOT_WEBHOOK_SECRET_TOKEN is required in webhook mode");
+    /// Return the public HTTPS webhook URL and its secret token, which webhook mode cannot run without.
+    pub fn webhook_target(&self) -> Result<WebhookTarget> {
+        // Without the secret, anyone who finds the webhook URL could send the bot fake updates.
+        let Some(secret_token) = self.bot_webhook_secret_token.clone() else {
+            bail!("TELEGRAM_NEWS_BOT_WEBHOOK_SECRET_TOKEN is required in webhook mode");
+        };
+        let url = match (&self.bot_webhook_url, &self.public_host) {
+            (Some(url), _) => url.clone(),
+            (None, Some(public_host)) => {
+                format!("https://{}{}", public_host.trim_end_matches('/'), self.bot_webhook_path)
             }
-            self.webhook_url()?;
-        }
-        Ok(())
-    }
-
-    /// Return the public HTTPS webhook URL to register with Telegram.
-    pub fn webhook_url(&self) -> Result<String> {
-        if !self.bot_webhook_url.is_empty() {
-            return Ok(self.bot_webhook_url.clone());
-        }
-        if !self.public_host.is_empty() {
-            return Ok(format!("https://{}{}", self.public_host.trim_end_matches('/'), self.bot_webhook_path));
-        }
-        bail!("TELEGRAM_NEWS_PUBLIC_HOST or TELEGRAM_NEWS_BOT_WEBHOOK_URL is required in webhook mode")
+            (None, None) => {
+                bail!("TELEGRAM_NEWS_PUBLIC_HOST or TELEGRAM_NEWS_BOT_WEBHOOK_URL is required in webhook mode")
+            }
+        };
+        Ok(WebhookTarget { url, secret_token })
     }
 
     /// Return the public Mini App URL for the menu button, when there is one.
     pub fn mini_app_url(&self) -> Option<String> {
-        if !self.mini_app_url.is_empty() {
-            return Some(self.mini_app_url.clone());
-        }
-        (!self.public_host.is_empty()).then(|| format!("https://{}/app/", self.public_host.trim_end_matches('/')))
+        self.mini_app_url.clone().or_else(|| {
+            self.public_host.as_ref().map(|public_host| format!("https://{}/app/", public_host.trim_end_matches('/')))
+        })
     }
 
     /// Return the Telegram Bot API request timeout.
@@ -133,4 +134,50 @@ fn default_telegram_get_updates_timeout_seconds() -> u64 {
 
 fn default_telegram_get_updates_retry_seconds() -> u64 {
     2
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use super::*;
+
+    fn configs(overrides: Value) -> Configs {
+        let mut values = json!({"bot_token": "123:token", "admin_user_id": 1});
+        values.as_object_mut().unwrap().extend(overrides.as_object().unwrap().clone());
+        serde_json::from_value(values).unwrap()
+    }
+
+    #[test]
+    fn webhook_target_needs_a_secret_and_prefers_the_explicit_url() {
+        let from_host = configs(json!({"public_host": "bot.example/", "bot_webhook_secret_token": "secret"}));
+        let explicit = configs(json!({
+            "public_host": "bot.example",
+            "bot_webhook_url": "https://hook.example/in",
+            "bot_webhook_secret_token": "secret",
+        }));
+        // An empty value counts as unset, so it cannot pass for a secret.
+        let empty_secret = configs(json!({"public_host": "bot.example", "bot_webhook_secret_token": ""}));
+        let no_url = configs(json!({"bot_webhook_secret_token": "secret"}));
+
+        assert_eq!(from_host.webhook_target().unwrap().url, "https://bot.example/telegram/webhook");
+        assert_eq!(
+            explicit.webhook_target().unwrap(),
+            WebhookTarget { url: "https://hook.example/in".to_owned(), secret_token: "secret".to_owned() }
+        );
+        assert!(empty_secret.webhook_target().is_err());
+        assert!(no_url.webhook_target().is_err());
+    }
+
+    #[test]
+    fn mini_app_url_prefers_the_explicit_url_over_the_public_host() {
+        let explicit = configs(json!({"public_host": "bot.example", "mini_app_url": "https://tunnel.example/app/"}));
+
+        assert_eq!(explicit.mini_app_url().as_deref(), Some("https://tunnel.example/app/"));
+        assert_eq!(
+            configs(json!({"public_host": "bot.example/"})).mini_app_url().as_deref(),
+            Some("https://bot.example/app/")
+        );
+        assert_eq!(configs(json!({"mini_app_url": ""})).mini_app_url(), None);
+    }
 }

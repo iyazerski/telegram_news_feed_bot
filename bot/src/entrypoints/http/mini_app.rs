@@ -15,8 +15,8 @@ use tracing::error;
 
 use crate::entrypoints::http::auth::{InitDataError, init_data_secret_key, validate_init_data};
 use crate::use_cases::ManageError;
-use crate::use_cases::manage_feed::{ChannelPage, FeedService, FeedStore};
-use crate::use_cases::manage_recaps::{RecapService, RecapStore};
+use crate::use_cases::manage_feed::{ChannelPage, Feed, FeedStore};
+use crate::use_cases::manage_recaps::{RecapStore, Recaps};
 
 const INIT_DATA_HEADER: &str = "x-telegram-init-data";
 const MAX_CURSOR_CHARS: usize = 120;
@@ -40,13 +40,13 @@ impl MiniAppAuth {
 
 /// The Mini App API's use cases and access rule.
 pub struct MiniApp<S> {
-    feed: FeedService<S>,
-    recaps: RecapService<S>,
+    feed: Feed<S>,
+    recaps: Recaps<S>,
     auth: MiniAppAuth,
 }
 
 impl<S: FeedStore + RecapStore + 'static> MiniApp<S> {
-    pub fn new(feed: FeedService<S>, recaps: RecapService<S>, auth: MiniAppAuth) -> Self {
+    pub fn new(feed: Feed<S>, recaps: Recaps<S>, auth: MiniAppAuth) -> Self {
         Self { feed, recaps, auth }
     }
 
@@ -394,8 +394,8 @@ mod tests {
     impl Client {
         fn new(store: &Arc<FakeStore>) -> Self {
             let app = MiniApp::new(
-                FeedService::new(Arc::clone(store), 300),
-                RecapService::new(Arc::clone(store), 21_600),
+                Feed::new(Arc::clone(store), 300),
+                Recaps::new(Arc::clone(store), 21_600),
                 MiniAppAuth::new(BOT_TOKEN, ADMIN_ID, 3_600),
             );
             Self { router: app.into_router(), init_data: signed_init_data(BOT_TOKEN, ADMIN_ID, Utc::now().timestamp()) }

@@ -37,13 +37,13 @@ impl FeedStore for PostgresFeedStore {
         })
     }
 
-    async fn list_active_channels(&self, after: &str, limit: i64) -> Result<Vec<SourceChannel>> {
+    async fn list_active_channels(&self, after: &str, limit: usize) -> Result<Vec<SourceChannel>> {
         let rows = sqlx::query(
             "SELECT username, last_committed_message_id FROM source_channel \
              WHERE active AND username > $1 ORDER BY username LIMIT $2",
         )
         .bind(after)
-        .bind(limit)
+        .bind(i64::try_from(limit)?)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows
