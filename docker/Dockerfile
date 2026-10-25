@@ -1,9 +1,27 @@
 # check=skip=SecretsUsedInArgOrEnv
 # TELEGRAM_NEWS_RECAP_AUTH_DIR names a directory, not a secret, but its name trips that check.
 
-FROM rust:1.99-slim-trixie AS builder
+# cargo-chef splits the build so dependencies compile in their own layer, which the CD layer cache reuses
+# until a manifest or Cargo.lock changes.
+FROM lukemathwalker/cargo-chef:0.1.78-rust-1.99-slim-trixie AS chef
 
 WORKDIR /build
+
+
+FROM chef AS planner
+
+COPY . .
+
+# The recipe lists only manifests and the lockfile, so source-only changes leave it, and the cook layer, unchanged.
+RUN cargo chef prepare --recipe-path recipe.json
+
+
+FROM chef AS builder
+
+COPY --from=planner /build/recipe.json recipe.json
+
+# Builds only the dependencies, with the same profile and flags as the final build so their artifacts are reused.
+RUN cargo chef cook --release --locked --workspace --recipe-path recipe.json
 
 # Cargo loads every workspace member, so the build copies all of them.
 COPY Cargo.toml Cargo.lock ./

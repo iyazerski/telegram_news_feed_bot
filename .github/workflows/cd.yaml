@@ -64,6 +64,11 @@ jobs:
           # Build the checked-out commit, which is the CI-tested one, rather than the event's Git ref.
           source: .
           push: true
+          # Runners start empty, so keep every stage's layers, including the cargo-chef dependency layer, in the
+          # GitHub Actions cache. All images share the builder stage, so one scope serves them all.
+          set: |
+            *.cache-from=type=gha,scope=images
+            *.cache-to=type=gha,scope=images,mode=max
 
   deploy:
     needs: build
