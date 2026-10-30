@@ -12,7 +12,7 @@ repos:
         entry: cargo fmt --all
         language: system
         pass_filenames: false
-        files: &rust-files ^(Cargo\.(toml|lock)|rustfmt\.toml|bot/|common/|feed/|migrate/|migrations/|recapper/)
+        files: &rust-files ^(Cargo\.(toml|lock)|rustfmt\.toml|bot/|common/|feed/|migrate/|migrations/)
 
       - id: cargo-clippy
         name: cargo clippy

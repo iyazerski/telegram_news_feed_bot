@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["bot", "common", "feed", "migrate", "recapper"]
+members = ["bot", "common", "feed", "migrate"]
 
 [workspace.package]
 version = "0.1.0"
@@ -16,11 +16,8 @@ common = { path = "common" }
 dotenvy = "0.15"
 envy = "0.4"
 futures = "0.3"
-html2text = "0.15"
 regex = "1"
 reqwest = { version = "0.13", default-features = false, features = ["brotli", "gzip", "json", "rustls"] }
-# Rig is the agent harness; its minor versions break APIs, so updates stay within 0.45.
-rig = "0.45"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sqlx = { version = "0.8", default-features = false, features = ["chrono", "postgres", "runtime-tokio"] }

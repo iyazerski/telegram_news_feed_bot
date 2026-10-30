@@ -10,12 +10,12 @@ variable "IMAGE_TAG" {
 }
 
 group "default" {
-  targets = ["bot", "feed", "migration", "recapper"]
+  targets = ["bot", "feed", "migration"]
 }
 
 target "service" {
   name       = service
-  matrix     = { service = ["bot", "feed", "migration", "recapper"] }
+  matrix     = { service = ["bot", "feed", "migration"] }
   context    = "."
   dockerfile = "docker/Dockerfile"
   target     = service

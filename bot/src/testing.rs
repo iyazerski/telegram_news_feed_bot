@@ -4,11 +4,8 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
-use common::settings::{RecapSchedule, RecapSettings};
 
 use crate::use_cases::manage_feed::FeedStore;
-use crate::use_cases::manage_recaps::RecapStore;
 
 #[derive(Default)]
 struct State {
@@ -16,8 +13,6 @@ struct State {
     poll_interval_seconds: Option<u64>,
     /// Whether each channel, by username, is active.
     channels: BTreeMap<String, bool>,
-    recap: Option<RecapSettings>,
-    next_run_at: Option<DateTime<Utc>>,
     fail_next_destination_write: bool,
 }
 
@@ -39,14 +34,6 @@ impl FakeStore {
 
     pub fn destination(&self) -> Option<String> {
         self.state.lock().unwrap().destination.clone()
-    }
-
-    pub fn next_run_at(&self) -> Option<DateTime<Utc>> {
-        self.state.lock().unwrap().next_run_at
-    }
-
-    pub fn set_next_run_at(&self, run_at: Option<DateTime<Utc>>) {
-        self.state.lock().unwrap().next_run_at = run_at;
     }
 }
 
@@ -96,32 +83,5 @@ impl FeedStore for FakeStore {
         };
         *active = false;
         Ok(true)
-    }
-}
-
-impl RecapStore for FakeStore {
-    async fn load_recap(&self, default_interval_seconds: i64) -> Result<RecapSchedule> {
-        let state = self.state.lock().unwrap();
-        let settings = state.recap.clone().unwrap_or_else(|| RecapSettings {
-            topics: Vec::new(),
-            language: "English".to_owned(),
-            interval_seconds: default_interval_seconds,
-            enabled: false,
-        });
-        Ok(RecapSchedule { settings, next_run_at: state.next_run_at })
-    }
-
-    async fn store_recap(&self, settings: &RecapSettings, next_run_at: Option<DateTime<Utc>>) -> Result<()> {
-        let mut state = self.state.lock().unwrap();
-        state.recap = Some(settings.clone());
-        if next_run_at.is_some() {
-            state.next_run_at = next_run_at;
-        }
-        Ok(())
-    }
-
-    async fn store_recap_next_run_at(&self, run_at: DateTime<Utc>) -> Result<()> {
-        self.set_next_run_at(Some(run_at));
-        Ok(())
     }
 }

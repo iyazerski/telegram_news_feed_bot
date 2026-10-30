@@ -1,5 +1,4 @@
 pub mod manage_feed;
-pub mod manage_recaps;
 
 /// A management request that failed.
 #[derive(Debug, thiserror::Error)]

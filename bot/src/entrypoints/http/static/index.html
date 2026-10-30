@@ -54,50 +54,6 @@
         </div>
       </section>
 
-      <section class="panel" aria-labelledby="recap-heading">
-        <div class="section-heading">
-          <div>
-            <h2 id="recap-heading">AI Recap</h2>
-            <p>Get a short digest of the most important news on your topics, with links to the sources.</p>
-          </div>
-          <label class="switch">
-            <input type="checkbox" id="recap-enabled" />
-            <span>On</span>
-          </label>
-        </div>
-
-        <form class="recap-form" id="recap-form">
-          <label class="field-label" for="recap-topics">Topics</label>
-          <textarea id="recap-topics" rows="3" placeholder="One topic per line, like AI or Space exploration"></textarea>
-
-          <div class="form-row recap-language">
-            <label class="field-label" for="recap-language">Language</label>
-            <input id="recap-language" list="recap-languages" autocomplete="off" />
-            <datalist id="recap-languages">
-              <option value="English"></option>
-              <option value="Russian"></option>
-              <option value="Belarusian"></option>
-              <option value="Polish"></option>
-              <option value="German"></option>
-            </datalist>
-          </div>
-
-          <span class="field-label">Frequency</span>
-          <div class="preset-row" role="group" aria-label="Recap frequency">
-            <button type="button" data-recap-interval="3h">3h</button>
-            <button type="button" data-recap-interval="6h">6h</button>
-            <button type="button" data-recap-interval="12h">12h</button>
-            <button type="button" data-recap-interval="24h">24h</button>
-          </div>
-
-          <p class="hint" id="recap-next"></p>
-          <div class="action-row">
-            <button type="submit">Save</button>
-            <button type="button" class="secondary" id="recap-send-now">Send now</button>
-          </div>
-        </form>
-      </section>
-
       <p class="message" id="message" role="status"></p>
     </main>
   </body>

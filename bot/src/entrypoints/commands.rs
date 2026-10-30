@@ -45,11 +45,11 @@ impl<S: FeedStore, M: BotMessenger> CommandHandler<S, M> {
         }
     }
 
-    /// Pause posts and recaps when the connected chat blocks or removes the bot; the next /start resumes them.
+    /// Pause posts when the connected chat blocks or removes the bot; the next /start resumes them.
     async fn handle_membership(&self, membership: &ChatMemberUpdated) -> Result<()> {
         let chat_id = membership.chat.id;
         if membership.new_chat_member.status.is_gone() && self.feed.disconnect_chat(chat_id).await? {
-            info!("Paused posts and recaps: chat {chat_id} blocked or removed the bot");
+            info!("Paused posts: chat {chat_id} blocked or removed the bot");
         }
         Ok(())
     }

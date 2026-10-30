@@ -43,12 +43,12 @@ impl<S: FeedStore> Feed<S> {
         Self { store, default_poll_interval_seconds }
     }
 
-    /// Make `chat_id` the chat that receives posts and recaps.
+    /// Make `chat_id` the chat that receives posts.
     pub async fn connect_chat(&self, chat_id: i64) -> Result<()> {
         self.store.store_destination_chat_id(&chat_id.to_string()).await
     }
 
-    /// Pause posts and recaps when `chat_id` is the connected chat, keeping every other setting for the next /start.
+    /// Pause posts when `chat_id` is the connected chat, keeping every other setting for the next /start.
     /// Return whether it was connected.
     pub async fn disconnect_chat(&self, chat_id: i64) -> Result<bool> {
         self.store.delete_destination_chat_id(&chat_id.to_string()).await

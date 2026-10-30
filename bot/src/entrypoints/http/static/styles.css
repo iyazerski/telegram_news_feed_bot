@@ -30,9 +30,7 @@ body {
 }
 
 button,
-input,
-select,
-textarea {
+input {
   font: inherit;
 }
 
@@ -135,9 +133,7 @@ h2 {
   gap: 8px;
 }
 
-input,
-select,
-textarea {
+input {
   width: 100%;
   min-height: 42px;
   border: 1px solid var(--app-border);
@@ -148,14 +144,7 @@ textarea {
   outline: 0;
 }
 
-textarea {
-  padding: 10px 12px;
-  resize: vertical;
-}
-
-input:focus,
-select:focus,
-textarea:focus {
+input:focus {
   border-color: var(--app-link);
 }
 
@@ -219,45 +208,6 @@ textarea:focus {
 .preset-row button.is-selected {
   background: var(--app-button);
   color: var(--app-button-text);
-}
-
-.recap-form {
-  display: grid;
-  gap: 8px;
-}
-
-.recap-language {
-  margin-bottom: 4px;
-}
-
-.switch {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--app-muted);
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.switch input {
-  width: 20px;
-  min-height: 20px;
-}
-
-.hint {
-  color: var(--app-muted);
-  font-size: 13px;
-}
-
-.action-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-button.secondary {
-  background: color-mix(in srgb, var(--app-button), transparent 88%);
-  color: var(--app-button);
 }
 
 .message {

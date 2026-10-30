@@ -1,5 +1,5 @@
 //! Bot microservice: answers Telegram commands, receives updates by webhook or long polling, and serves the Mini App
-//! that manages channel subscriptions, the poll interval, and AI recaps.
+//! that manages channel subscriptions, and the poll interval.
 
 mod config;
 mod domain;

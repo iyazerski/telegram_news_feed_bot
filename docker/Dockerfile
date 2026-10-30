@@ -1,6 +1,3 @@
-# check=skip=SecretsUsedInArgOrEnv
-# TELEGRAM_NEWS_RECAP_AUTH_DIR names a directory, not a secret, but its name trips that check.
-
 # cargo-chef splits the build so dependencies compile in their own layer, which the CD layer cache reuses
 # until a manifest or Cargo.lock changes.
 FROM lukemathwalker/cargo-chef:0.1.78-rust-1.99-slim-trixie AS chef
@@ -30,7 +27,6 @@ COPY common common
 COPY feed feed
 COPY migrate migrate
 COPY migrations migrations
-COPY recapper recapper
 
 # One build for every service compiles their shared dependencies once.
 RUN cargo build --release --locked --workspace
@@ -63,13 +59,3 @@ FROM runtime AS migration
 COPY --from=builder /build/target/release/migrate /usr/local/bin/migrate
 
 ENTRYPOINT ["/usr/local/bin/migrate"]
-
-
-FROM runtime AS recapper
-
-COPY --from=builder /build/target/release/recapper /usr/local/bin/recapper
-
-# The ChatGPT sign-in lives on a volume mounted here, so it survives restarts and new images.
-ENV TELEGRAM_NEWS_RECAP_AUTH_DIR=/var/lib/telegram-news/auth
-
-ENTRYPOINT ["/usr/local/bin/recapper"]

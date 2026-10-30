@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use anyhow::{Result, bail};
 use common::config::{
-    default_database_url, default_log_level, default_poll_interval_seconds, default_recap_interval_seconds,
-    default_telegram_http_timeout_seconds, non_empty,
+    default_database_url, default_log_level, default_poll_interval_seconds, default_telegram_http_timeout_seconds,
+    non_empty,
 };
 use serde::Deserialize;
 
@@ -60,9 +60,6 @@ pub struct Configs {
     /// The feed reads the same variable, so both agree on the interval before the first save.
     #[serde(default = "default_poll_interval_seconds")]
     pub default_poll_interval_seconds: u64,
-    /// The recapper reads the same variable, so both agree on the interval before the first save.
-    #[serde(default = "default_recap_interval_seconds")]
-    pub default_recap_interval_seconds: i64,
     #[serde(default = "default_telegram_http_timeout_seconds")]
     pub telegram_http_timeout_seconds: f64,
     #[serde(default = "default_telegram_get_updates_timeout_seconds")]

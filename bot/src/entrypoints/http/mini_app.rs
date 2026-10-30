@@ -5,10 +5,9 @@ use axum::extract::{FromRequestParts, Path, Query, State};
 use axum::http::StatusCode;
 use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, patch, post, put};
+use axum::routing::{delete, get, patch};
 use axum::{Json, Router};
-use chrono::{DateTime, Utc};
-use common::settings::{RecapSchedule, RecapSettings};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::error;
@@ -16,13 +15,9 @@ use tracing::error;
 use crate::entrypoints::http::auth::{InitDataError, init_data_secret_key, validate_init_data};
 use crate::use_cases::ManageError;
 use crate::use_cases::manage_feed::{ChannelPage, Feed, FeedStore};
-use crate::use_cases::manage_recaps::{RecapStore, Recaps};
 
 const INIT_DATA_HEADER: &str = "x-telegram-init-data";
 const MAX_CURSOR_CHARS: usize = 120;
-const MAX_TOPICS: usize = 10;
-const MAX_TOPIC_CHARS: usize = 80;
-const MAX_LANGUAGE_CHARS: usize = 40;
 
 /// Who may use the Mini App API: the admin, proven by init data that the bot token signed.
 pub struct MiniAppAuth {
@@ -41,13 +36,12 @@ impl MiniAppAuth {
 /// The Mini App API's use cases and access rule.
 pub struct MiniApp<S> {
     feed: Feed<S>,
-    recaps: Recaps<S>,
     auth: MiniAppAuth,
 }
 
-impl<S: FeedStore + RecapStore + 'static> MiniApp<S> {
-    pub fn new(feed: Feed<S>, recaps: Recaps<S>, auth: MiniAppAuth) -> Self {
-        Self { feed, recaps, auth }
+impl<S: FeedStore + 'static> MiniApp<S> {
+    pub fn new(feed: Feed<S>, auth: MiniAppAuth) -> Self {
+        Self { feed, auth }
     }
 
     /// Return the `/api` routes, which only the admin may call.
@@ -57,8 +51,6 @@ impl<S: FeedStore + RecapStore + 'static> MiniApp<S> {
             .route("/api/channels", get(get_channels::<S>).post(add_channel::<S>))
             .route("/api/channels/{username}", delete(remove_channel::<S>))
             .route("/api/settings/poll-interval", patch(update_poll_interval::<S>))
-            .route("/api/recap", put(update_recap::<S>))
-            .route("/api/recap/send-now", post(send_recap_now::<S>))
             .with_state(Arc::new(self))
     }
 }
@@ -173,32 +165,10 @@ struct SettingsResponse {
 }
 
 #[derive(Serialize)]
-struct RecapResponse {
-    topics: Vec<String>,
-    language: String,
-    interval_seconds: i64,
-    enabled: bool,
-    next_run_at: Option<DateTime<Utc>>,
-}
-
-impl From<RecapSchedule> for RecapResponse {
-    fn from(RecapSchedule { settings, next_run_at }: RecapSchedule) -> Self {
-        Self {
-            topics: settings.topics,
-            language: settings.language,
-            interval_seconds: settings.interval_seconds,
-            enabled: settings.enabled,
-            next_run_at,
-        }
-    }
-}
-
-#[derive(Serialize)]
 struct AppStateResponse {
     poll_interval_seconds: u64,
     #[serde(flatten)]
     page: ChannelPageResponse,
-    recap: RecapResponse,
 }
 
 #[derive(Deserialize)]
@@ -241,80 +211,16 @@ struct PollIntervalRequest {
     interval: PollInterval,
 }
 
-/// The recap intervals the Mini App offers.
-#[derive(Deserialize)]
-enum RecapInterval {
-    #[serde(rename = "3h")]
-    ThreeHours,
-    #[serde(rename = "6h")]
-    SixHours,
-    #[serde(rename = "12h")]
-    TwelveHours,
-    #[serde(rename = "24h")]
-    OneDay,
-}
-
-impl RecapInterval {
-    fn seconds(&self) -> i64 {
-        match self {
-            Self::ThreeHours => 10_800,
-            Self::SixHours => 21_600,
-            Self::TwelveHours => 43_200,
-            Self::OneDay => 86_400,
-        }
-    }
-}
-
-#[derive(Deserialize)]
-struct RecapSettingsRequest {
-    topics: Vec<String>,
-    language: String,
-    interval: RecapInterval,
-    enabled: bool,
-}
-
-impl RecapSettingsRequest {
-    /// Return the trimmed settings, with repeated topics once, or why they are invalid.
-    fn into_settings(self) -> Result<RecapSettings, ApiError> {
-        if self.topics.len() > MAX_TOPICS {
-            return Err(ApiError::invalid(format!("Use at most {MAX_TOPICS} topics.")));
-        }
-        let mut topics: Vec<String> = Vec::with_capacity(self.topics.len());
-        for topic in &self.topics {
-            let topic = require_length(topic, MAX_TOPIC_CHARS, "Each topic")?;
-            if !topics.contains(&topic) {
-                topics.push(topic);
-            }
-        }
-        Ok(RecapSettings {
-            topics,
-            language: require_length(&self.language, MAX_LANGUAGE_CHARS, "The language")?,
-            interval_seconds: self.interval.seconds(),
-            enabled: self.enabled,
-        })
-    }
-}
-
-/// Return `value` trimmed, or an error when that leaves it empty or longer than `max_chars`.
-fn require_length(value: &str, max_chars: usize, name: &str) -> Result<String, ApiError> {
-    let value = value.trim();
-    if value.is_empty() || value.chars().count() > max_chars {
-        return Err(ApiError::invalid(format!("{name} must have 1 to {max_chars} characters.")));
-    }
-    Ok(value.to_owned())
-}
-
-async fn get_state<S: FeedStore + RecapStore>(
+async fn get_state<S: FeedStore>(
     State(app): State<Arc<MiniApp<S>>>,
     _admin: Admin,
 ) -> Result<Json<AppStateResponse>, ApiError> {
-    // The pool has room for all three queries at once.
-    let (poll_interval_seconds, page, recap) =
-        tokio::try_join!(app.feed.poll_interval_seconds(), app.feed.channel_page(""), app.recaps.schedule())?;
-    Ok(Json(AppStateResponse { poll_interval_seconds, page: page.into(), recap: recap.into() }))
+    // The pool has room for both queries at once.
+    let (poll_interval_seconds, page) = tokio::try_join!(app.feed.poll_interval_seconds(), app.feed.channel_page(""))?;
+    Ok(Json(AppStateResponse { poll_interval_seconds, page: page.into() }))
 }
 
-async fn get_channels<S: FeedStore + RecapStore>(
+async fn get_channels<S: FeedStore>(
     State(app): State<Arc<MiniApp<S>>>,
     _admin: Admin,
     query: Result<Query<ChannelsQuery>, QueryRejection>,
@@ -326,7 +232,7 @@ async fn get_channels<S: FeedStore + RecapStore>(
     Ok(Json(app.feed.channel_page(&query.after).await?.into()))
 }
 
-async fn add_channel<S: FeedStore + RecapStore>(
+async fn add_channel<S: FeedStore>(
     State(app): State<Arc<MiniApp<S>>>,
     _admin: Admin,
     request: Result<Json<AddChannelRequest>, JsonRejection>,
@@ -335,7 +241,7 @@ async fn add_channel<S: FeedStore + RecapStore>(
     Ok(Json(ChannelResponse::new(app.feed.add_channel(&request.username_or_url).await?)))
 }
 
-async fn remove_channel<S: FeedStore + RecapStore>(
+async fn remove_channel<S: FeedStore>(
     State(app): State<Arc<MiniApp<S>>>,
     _admin: Admin,
     Path(username): Path<String>,
@@ -344,7 +250,7 @@ async fn remove_channel<S: FeedStore + RecapStore>(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn update_poll_interval<S: FeedStore + RecapStore>(
+async fn update_poll_interval<S: FeedStore>(
     State(app): State<Arc<MiniApp<S>>>,
     _admin: Admin,
     request: Result<Json<PollIntervalRequest>, JsonRejection>,
@@ -353,22 +259,6 @@ async fn update_poll_interval<S: FeedStore + RecapStore>(
     let seconds = request.interval.seconds();
     app.feed.set_poll_interval_seconds(seconds).await?;
     Ok(Json(SettingsResponse { poll_interval_seconds: seconds }))
-}
-
-async fn update_recap<S: FeedStore + RecapStore>(
-    State(app): State<Arc<MiniApp<S>>>,
-    _admin: Admin,
-    request: Result<Json<RecapSettingsRequest>, JsonRejection>,
-) -> Result<Json<RecapResponse>, ApiError> {
-    let Json(request) = request?;
-    Ok(Json(app.recaps.save(request.into_settings()?, Utc::now()).await?.into()))
-}
-
-async fn send_recap_now<S: FeedStore + RecapStore>(
-    State(app): State<Arc<MiniApp<S>>>,
-    _admin: Admin,
-) -> Result<Json<RecapResponse>, ApiError> {
-    Ok(Json(app.recaps.request_now(Utc::now()).await?.into()))
 }
 
 #[cfg(test)]
@@ -393,11 +283,7 @@ mod tests {
 
     impl Client {
         fn new(store: &Arc<FakeStore>) -> Self {
-            let app = MiniApp::new(
-                Feed::new(Arc::clone(store), 300),
-                Recaps::new(Arc::clone(store), 21_600),
-                MiniAppAuth::new(BOT_TOKEN, ADMIN_ID, 3_600),
-            );
+            let app = MiniApp::new(Feed::new(Arc::clone(store), 300), MiniAppAuth::new(BOT_TOKEN, ADMIN_ID, 3_600));
             Self { router: app.into_router(), init_data: signed_init_data(BOT_TOKEN, ADMIN_ID, Utc::now().timestamp()) }
         }
 
@@ -467,61 +353,6 @@ mod tests {
             invalid,
             (StatusCode::BAD_REQUEST, json!({"detail": "Channel username must not include a message path"}))
         );
-    }
-
-    #[tokio::test]
-    async fn recap_settings_schedule_recaps_and_validate_input() {
-        let store = Arc::new(FakeStore::default());
-        let client = Client::new(&store);
-        let request =
-            json!({"topics": [" AI ", "AI", "Space"], "language": " Russian ", "interval": "12h", "enabled": true});
-
-        let (_, state) = client.send(Method::GET, "/api/state", None).await;
-        let (early_status, _) = client.send(Method::POST, "/api/recap/send-now", None).await;
-        let (saved_status, saved) = client.send(Method::PUT, "/api/recap", Some(request.clone())).await;
-        let (now_status, _) = client.send(Method::POST, "/api/recap/send-now", None).await;
-        let (_, turned_off) = client
-            .send(
-                Method::PUT,
-                "/api/recap",
-                Some(json!({"topics": ["AI"], "language": "English", "interval": "6h", "enabled": false})),
-            )
-            .await;
-
-        assert_eq!(
-            state["recap"],
-            json!({"topics": [], "language": "English", "interval_seconds": 21_600, "enabled": false, "next_run_at": null})
-        );
-        assert_eq!((early_status, saved_status, now_status), (StatusCode::BAD_REQUEST, StatusCode::OK, StatusCode::OK));
-        assert_eq!(
-            (&saved["topics"], &saved["language"], &saved["interval_seconds"]),
-            (&json!(["AI", "Space"]), &json!("Russian"), &json!(43_200))
-        );
-        assert!(saved["next_run_at"].is_string());
-        assert_eq!(turned_off["next_run_at"], Value::Null);
-    }
-
-    #[tokio::test]
-    async fn invalid_recap_requests_explain_what_is_wrong() {
-        let client = Client::new(&Arc::new(FakeStore::default()));
-        let request = json!({"topics": ["AI"], "language": "English", "interval": "6h", "enabled": true});
-        let with = |key: &str, value: Value| {
-            let mut request = request.clone();
-            request[key] = value;
-            Some(request)
-        };
-
-        for (body, status) in [
-            (with("topics", json!([])), StatusCode::BAD_REQUEST),
-            (with("interval", json!("2h")), StatusCode::UNPROCESSABLE_ENTITY),
-            (with("topics", json!(["  "])), StatusCode::UNPROCESSABLE_ENTITY),
-            (with("topics", json!(vec!["AI"; 11])), StatusCode::UNPROCESSABLE_ENTITY),
-            (with("language", json!("x".repeat(41))), StatusCode::UNPROCESSABLE_ENTITY),
-        ] {
-            let (actual, detail) = client.send(Method::PUT, "/api/recap", body).await;
-            assert_eq!(actual, status);
-            assert!(detail["detail"].is_string(), "{detail}");
-        }
     }
 
     #[tokio::test]

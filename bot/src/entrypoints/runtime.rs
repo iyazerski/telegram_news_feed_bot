@@ -15,7 +15,6 @@ use crate::entrypoints::http::{Webhook, create_app};
 use crate::entrypoints::polling::UpdatePoller;
 use crate::infrastructure::database::PostgresBotStore;
 use crate::use_cases::manage_feed::Feed;
-use crate::use_cases::manage_recaps::Recaps;
 
 /// Wire the bot, receive updates the configured way, and serve the Mini App until the process is told to stop.
 pub async fn run_forever(configs: Configs) -> Result<()> {
@@ -30,7 +29,6 @@ pub async fn run_forever(configs: Configs) -> Result<()> {
     let commands = CommandHandler::new(feed(), telegram.clone(), configs.admin_user_id);
     let mini_app = MiniApp::new(
         feed(),
-        Recaps::new(Arc::clone(&store), configs.default_recap_interval_seconds),
         MiniAppAuth::new(&configs.bot_token, configs.admin_user_id, configs.mini_app_auth_max_age_seconds),
     )
     .into_router();

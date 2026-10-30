@@ -1,19 +1,14 @@
 use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
 use common::database::connect_lazy;
-use common::settings::{
-    DESTINATION_CHAT_ID_KEY, POLL_INTERVAL_SECONDS_KEY, RECAP_KEYS, RecapSchedule, RecapSettings, load_settings,
-    parse_recap_schedule, store_recap_next_run_at, store_recap_settings, store_setting,
-};
+use common::settings::{DESTINATION_CHAT_ID_KEY, POLL_INTERVAL_SECONDS_KEY, load_settings, store_setting};
 use sqlx::postgres::PgPool;
 
 use crate::use_cases::manage_feed::FeedStore;
-use crate::use_cases::manage_recaps::RecapStore;
 
 // Mini App requests can overlap with an update, so a few connections keep them from queueing.
 const MAX_CONNECTIONS: u32 = 4;
 
-/// Feed settings, channel subscriptions, and recap settings in the shared Postgres database.
+/// Feed settings and channel subscriptions in the shared Postgres database.
 pub struct PostgresBotStore {
     pool: PgPool,
 }
@@ -81,26 +76,5 @@ impl FeedStore for PostgresBotStore {
             .execute(&self.pool)
             .await?;
         Ok(result.rows_affected() > 0)
-    }
-}
-
-impl RecapStore for PostgresBotStore {
-    async fn load_recap(&self, default_interval_seconds: i64) -> Result<RecapSchedule> {
-        let values = load_settings(&self.pool, &RECAP_KEYS).await?;
-        parse_recap_schedule(&values, default_interval_seconds)
-    }
-
-    async fn store_recap(&self, settings: &RecapSettings, next_run_at: Option<DateTime<Utc>>) -> Result<()> {
-        let mut transaction = self.pool.begin().await?;
-        store_recap_settings(&mut transaction, settings).await?;
-        if let Some(run_at) = next_run_at {
-            store_recap_next_run_at(&mut *transaction, run_at).await?;
-        }
-        transaction.commit().await?;
-        Ok(())
-    }
-
-    async fn store_recap_next_run_at(&self, run_at: DateTime<Utc>) -> Result<()> {
-        store_recap_next_run_at(&self.pool, run_at).await
     }
 }
